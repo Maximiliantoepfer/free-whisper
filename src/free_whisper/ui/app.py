@@ -318,7 +318,7 @@ class FreeWhisperApp(QApplication):
         if theme is None:
             theme = self._settings.get_theme() if hasattr(self, "_settings") else "dark"
 
-        qss_name = "dark_theme.qss"  # Only dark theme for now
+        qss_name = f"{theme}_theme.qss"
         qss_path = get_assets_dir() / "styles" / qss_name
         if qss_path.exists():
             self.setStyleSheet(qss_path.read_text(encoding="utf-8"))
