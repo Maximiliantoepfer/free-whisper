@@ -149,10 +149,14 @@ class TranscriberWorker(QThread):
         last_exc: Exception | None = None
         for device, ct in configs:
             try:
-                log.info("Loading '%s' on %s/%s …", model_size, device, ct)
+                import sys as _sys
+                _local_only = getattr(_sys, "frozen", False)
+                log.info("Loading '%s' on %s/%s … (cache=%s, local_only=%s)",
+                         model_size, device, ct, cache, _local_only)
                 self._model = WhisperModel(
                     model_size, device=device, compute_type=ct,
                     download_root=cache,
+                    local_files_only=_local_only,
                 )
                 with self._lock:
                     self._loaded_model_size = model_size
@@ -222,6 +226,9 @@ class TranscriberWorker(QThread):
 
     @staticmethod
     def _resolve_compute_type(compute_type: str) -> str:
+        import sys
+        if getattr(sys, "frozen", False):
+            return "int8"  # float16 on CPU crashes in frozen builds
         if compute_type != "auto":
             return compute_type
         try:

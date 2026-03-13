@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(gh issue:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(gh api:*)",
+      "WebFetch(domain:forum.opennmt.net)",
+      "WebFetch(domain:southsoftware.substack.com)",
+      "WebFetch(domain:forum.videohelp.com)",
+      "WebFetch(domain:opennmt.net)",
+      "Bash(pip show:*)",
+      "Read(//c/Users/maxto/AppData/Local/Programs/Python/Python312/Lib/site-packages/ctranslate2/**)",
+      "Read(//c/Users/maxto/AppData/Local/Programs/Python/Python312/Lib/site-packages/**)",
+      "Bash(grep -i \"\\\\.libs$\\\\|mkl\\\\|openblas\\\\|openmp\\\\|iomp\")",
+      "Bash(pip install:*)",
+      "Bash(python -c \":*)"
+    ]
+  }
+}
