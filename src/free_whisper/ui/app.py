@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 
 from PyQt6.QtCore import QTimer, Qt, pyqtSlot
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
 
 from ..core.audio_recorder import AudioRecorder
@@ -28,6 +29,18 @@ class FreeWhisperApp(QApplication):
         self.setApplicationName("free-whisper")
         self.setOrganizationName("free-whisper")
         self.setQuitOnLastWindowClosed(False)
+
+        # Set app icon at the QApplication level so it appears in the taskbar.
+        # Windows needs .ico for proper Shell integration (taskbar, Alt+Tab).
+        if sys.platform == "win32":
+            icon_file = "app_icon.ico"
+        elif sys.platform == "darwin":
+            icon_file = "app_icon.icns"
+        else:
+            icon_file = "app_icon.png"
+        icon_path = get_assets_dir() / "icons" / icon_file
+        if icon_path.exists():
+            self.setWindowIcon(QIcon(str(icon_path)))
 
         # Load stylesheet
         self._load_stylesheet()
@@ -69,6 +82,7 @@ class FreeWhisperApp(QApplication):
         self._window.hotkey_changed.connect(self._hotkey_listener.update_hotkey)
         self._window.model_changed.connect(self._on_model_settings_changed)
         self._window.theme_changed.connect(self._load_stylesheet)
+        self._window.quit_requested.connect(self.quit_app)
 
         # Pause the global hotkey while the user is capturing a new one
         sp = self._window._settings_page
@@ -144,13 +158,13 @@ class FreeWhisperApp(QApplication):
         if audio.size == 0:
             self._tray.set_state(TrayState.IDLE)
             self._overlay.hide_overlay()
-            self._window.set_status("● Idle", "#606080")
+            self._window.set_status("● Idle", "#636366")
             return
 
         duration_ms = self._recorder.duration_ms
         self._tray.set_state(TrayState.PROCESSING)
         self._overlay.show_processing()
-        self._window.set_status("⏳ Transcribing…", "#f59e0b")
+        self._window.set_status("⏳ Transcribing…", "#ff9f0a")
 
         self._job_counter += 1
         job = TranscribeJob(
@@ -179,7 +193,7 @@ class FreeWhisperApp(QApplication):
     def _on_transcription_ready(self, text: str, duration_ms: int, job_id: int) -> None:
         self._tray.set_state(TrayState.IDLE)
         self._overlay.hide_overlay()
-        self._window.set_status("● Idle", "#606080")
+        self._window.set_status("● Idle", "#636366")
 
         if not text:
             log.info("Transcription returned empty text (job %d)", job_id)
@@ -213,32 +227,35 @@ class FreeWhisperApp(QApplication):
         log.warning("Transcription failed (job %d): %s", job_id, error)
         self._tray.set_state(TrayState.ERROR)
         self._overlay.hide_overlay()
-        self._window.set_status("⚠ Error", "#eab308")
+        self._window.set_status("⚠ Error", "#ff9f0a")
         self._tray.show_error(f"Transcription failed: {error}")
-        # Reset to idle after a delay
-        QTimer.singleShot(5000, lambda: (
-            self._tray.set_state(TrayState.IDLE),
-            self._window.set_status("● Idle", "#606080"),
-        ))
+        # Reset to idle after a delay (use bound method, not lambda,
+        # so it's safe if the app quits before the timer fires)
+        QTimer.singleShot(5000, self._reset_to_idle)
 
     @pyqtSlot(str)
     def _on_model_loading(self, model_size: str) -> None:
         log.info("Model loading: %s", model_size)
         self._tray.set_state(TrayState.PROCESSING)
-        self._window.set_status(f"⏳ Loading {model_size}…", "#f59e0b")
+        self._window.set_status(f"⏳ Loading {model_size}…", "#ff9f0a")
 
     @pyqtSlot(str)
     def _on_model_ready(self, model_size: str) -> None:
         log.info("Model ready: %s", model_size)
         self._tray.set_state(TrayState.IDLE)
-        self._window.set_status("● Idle", "#606080")
+        self._window.set_status("● Idle", "#636366")
 
     @pyqtSlot(str)
     def _on_model_load_failed(self, error: str) -> None:
         log.error("Model load failed: %s", error)
         self._tray.set_state(TrayState.ERROR)
-        self._window.set_status("⚠ Model error", "#eab308")
+        self._window.set_status("⚠ Model error", "#ff9f0a")
         self._tray.show_error(f"Model load failed: {error}")
+
+    def _reset_to_idle(self) -> None:
+        """Timer callback to clear error state after a delay."""
+        self._tray.set_state(TrayState.IDLE)
+        self._window.set_status("● Idle", "#636366")
 
     # ------------------------------------------------------------------
     # Settings changes
@@ -301,7 +318,7 @@ class FreeWhisperApp(QApplication):
         if theme is None:
             theme = self._settings.get_theme() if hasattr(self, "_settings") else "dark"
 
-        qss_name = "dark_theme.qss"  # Only dark theme for now
+        qss_name = f"{theme}_theme.qss"
         qss_path = get_assets_dir() / "styles" / qss_name
         if qss_path.exists():
             self.setStyleSheet(qss_path.read_text(encoding="utf-8"))

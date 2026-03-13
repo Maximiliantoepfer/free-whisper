@@ -1,7 +1,8 @@
 """Floating overlay near the text caret during recording/transcription.
 
-Shows three animated pulsing dots — a modern typing-indicator style.
-Recording = red dots, Transcribing = amber dots.
+Shows three small pulsing dots — minimal, unobtrusive typing indicator.
+Anchored to the text caret when available, otherwise centred at the
+bottom of the current screen.
 """
 
 from __future__ import annotations
@@ -11,22 +12,20 @@ import sys
 import time
 
 from PyQt6.QtCore import QPoint, QRectF, Qt, QTimer
-from PyQt6.QtGui import QColor, QCursor, QPainter, QPainterPath, QPen
+from PyQt6.QtGui import QColor, QPainter, QPainterPath
 from PyQt6.QtWidgets import QApplication, QWidget
 
 
 class CursorOverlay(QWidget):
-    """Pulsing-dot overlay anchored near the text caret."""
+    """Minimal pulsing-dot overlay anchored near the text caret."""
 
     _CARET_OFFSET = QPoint(4, 20)
-    _MOUSE_OFFSET = QPoint(20, 20)
     _FOLLOW_INTERVAL_MS = 80
-    _ANIM_INTERVAL_MS = 30          # ~33 fps for smooth animation
+    _ANIM_INTERVAL_MS = 30          # ~33 fps
     _DOT_COUNT = 3
-    _DOT_RADIUS_MIN = 3.0
-    _DOT_RADIUS_MAX = 5.5
-    _DOT_SPACING = 16               # center-to-center
-    _PHASE_OFFSET = 0.7             # radians between each dot
+    _DOT_RADIUS = 3.0               # constant size — no pulsing resize
+    _DOT_SPACING = 12               # tighter spacing for compact look
+    _PHASE_OFFSET = 0.8             # radians between each dot
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -39,15 +38,15 @@ class CursorOverlay(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
 
-        # Widget size just enough for the dots + padding
-        pad_x = 14
+        # Widget size — compact pill
+        pad_x = 10
         width = pad_x * 2 + (self._DOT_COUNT - 1) * self._DOT_SPACING
-        height = 28
+        height = 22
         self.setFixedSize(int(width), height)
 
-        self._dot_color = QColor("#ef4444")
-        self._bg_color = QColor(20, 20, 30, 160)   # subtle dark glass
-        self._t0 = 0.0                               # animation start time
+        self._dot_color = QColor(255, 255, 255)       # neutral white dots
+        self._bg_color = QColor(28, 28, 30, 140)      # very transparent dark
+        self._t0 = 0.0
 
         # Position tracking timer
         self._follow_timer = QTimer(self)
@@ -64,11 +63,11 @@ class CursorOverlay(QWidget):
     # ------------------------------------------------------------------
 
     def show_recording(self) -> None:
-        self._dot_color = QColor("#ef4444")   # red
+        self._dot_color = QColor(255, 255, 255)        # white
         self._show()
 
     def show_processing(self) -> None:
-        self._dot_color = QColor("#f59e0b")   # amber
+        self._dot_color = QColor(200, 200, 205)        # slightly dimmer
         self.update()
 
     def hide_overlay(self) -> None:
@@ -95,18 +94,25 @@ class CursorOverlay(QWidget):
         if caret is not None:
             pos = caret + self._CARET_OFFSET
             anchor = caret
+            # Clamp to screen edges
+            screen = QApplication.screenAt(anchor)
+            if screen:
+                geo = screen.availableGeometry()
+                if pos.x() + self.width() > geo.right():
+                    pos.setX(anchor.x() - self.width() - 10)
+                if pos.y() + self.height() > geo.bottom():
+                    pos.setY(anchor.y() - self.height() - 10)
+            self.move(pos)
         else:
-            pos = QCursor.pos() + self._MOUSE_OFFSET
-            anchor = QCursor.pos()
-
-        screen = QApplication.screenAt(anchor)
-        if screen:
-            geo = screen.availableGeometry()
-            if pos.x() + self.width() > geo.right():
-                pos.setX(anchor.x() - self.width() - 10)
-            if pos.y() + self.height() > geo.bottom():
-                pos.setY(anchor.y() - self.height() - 10)
-        self.move(pos)
+            # Fallback: bottom-centre of the current screen
+            screen = QApplication.screenAt(self.pos())
+            if screen is None:
+                screen = QApplication.primaryScreen()
+            if screen:
+                geo = screen.availableGeometry()
+                x = geo.center().x() - self.width() // 2
+                y = geo.bottom() - self.height() - 48   # 48px above taskbar
+                self.move(x, y)
 
     def _get_caret_screen_pos(self) -> QPoint | None:
         """Get the screen position of the text caret in the foreground window."""
@@ -158,43 +164,26 @@ class CursorOverlay(QWidget):
         bg_path.addRoundedRect(QRectF(0, 0, w, h), h / 2, h / 2)
         p.fillPath(bg_path, self._bg_color)
 
-        # Thin border for depth
-        p.setPen(QPen(QColor(255, 255, 255, 25), 1.0))
-        p.drawPath(bg_path)
-
-        # Animated dots
+        # Animated dots — opacity-only pulse, no size change, no bounce
         t = time.monotonic() - self._t0
-        speed = 4.0  # radians per second
+        speed = 3.0  # slower, calmer
         cx_start = (w - (self._DOT_COUNT - 1) * self._DOT_SPACING) / 2
         cy = h / 2
+        r = self._DOT_RADIUS
 
         p.setPen(Qt.PenStyle.NoPen)
 
         for i in range(self._DOT_COUNT):
             phase = t * speed - i * self._PHASE_OFFSET
-            # sin wave mapped to [0, 1]
             wave = (math.sin(phase) + 1.0) / 2.0
 
-            # Radius oscillates between min and max
-            r = self._DOT_RADIUS_MIN + wave * (self._DOT_RADIUS_MAX - self._DOT_RADIUS_MIN)
-
-            # Opacity oscillates between 0.4 and 1.0
-            alpha = 0.4 + wave * 0.6
+            # Gentle opacity oscillation (0.3 → 0.85)
+            alpha = 0.3 + wave * 0.55
             color = QColor(self._dot_color)
             color.setAlphaF(alpha)
 
-            # Subtle vertical bounce (-2 to +2 pixels)
-            dy = -2.0 * wave
-
             cx = cx_start + i * self._DOT_SPACING
             p.setBrush(color)
-            p.drawEllipse(QRectF(cx - r, cy + dy - r, r * 2, r * 2))
-
-            # Glow effect — larger, very transparent circle behind the dot
-            glow = QColor(self._dot_color)
-            glow.setAlphaF(alpha * 0.2)
-            gr = r * 2.0
-            p.setBrush(glow)
-            p.drawEllipse(QRectF(cx - gr, cy + dy - gr, gr * 2, gr * 2))
+            p.drawEllipse(QRectF(cx - r, cy - r, r * 2, r * 2))
 
         p.end()

@@ -21,6 +21,14 @@ from pathlib import Path
 
 block_cipher = None
 
+# Platform-specific icon format
+if sys.platform == 'win32':
+    app_icon = 'assets/icons/app_icon.ico'
+elif sys.platform == 'darwin':
+    app_icon = 'assets/icons/app_icon.icns'
+else:
+    app_icon = 'assets/icons/app_icon.png'
+
 a = Analysis(
     ['src/free_whisper/main.py'],
     pathex=[],
@@ -79,7 +87,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='assets/icons/app_icon.png',  # Use .ico on Windows for best results
+    icon=app_icon,
 )
 
 coll = COLLECT(
@@ -98,7 +106,7 @@ if sys.platform == 'darwin':
     app = BUNDLE(
         coll,
         name='free-whisper.app',
-        icon='assets/icons/app_icon.png',
+        icon=app_icon,
         bundle_identifier='com.free-whisper.app',
         info_plist={
             'NSMicrophoneUsageDescription': 'free-whisper needs microphone access to transcribe speech.',

@@ -1,8 +1,12 @@
-"""Generate simple PNG tray icons using only stdlib (no Pillow required).
+"""Generate tray icons (stdlib) and app icon in .ico / .icns formats (Pillow).
 
-Run once: python scripts/generate_icons.py
+Run once:  python scripts/generate_icons.py
+
+Pillow is only needed for the .ico / .icns conversion and is listed in
+requirements-dev.txt.  The tray PNGs are generated with pure stdlib.
 """
 import struct
+import sys
 import zlib
 from pathlib import Path
 
@@ -100,8 +104,56 @@ def main() -> None:
     err_bg = _circle_rgba(size, 234, 179, 8)  # yellow-500
     (icons_dir / "tray_error.png").write_bytes(_make_png(size, size, err_bg))
 
-    print(f"Icons written to {icons_dir}")
-    print("Note: app_icon.png is not regenerated (custom icon in use).")
+    print(f"Tray icons written to {icons_dir}")
+
+    # ── App icon: convert app_icon.png → .ico (Windows) / .icns (macOS) ──
+    _generate_app_icons(icons_dir)
+
+
+def _generate_app_icons(icons_dir: Path) -> None:
+    """Create app_icon.ico and app_icon.icns from app_icon.png using Pillow.
+
+    Skips generation if the target file already exists (a hand-crafted icon
+    takes precedence over an auto-generated one).
+    """
+    src = icons_dir / "app_icon.png"
+    if not src.exists():
+        print(f"WARNING: {src} not found — skipping .ico / .icns generation")
+        return
+
+    ico_path = icons_dir / "app_icon.ico"
+    icns_path = icons_dir / "app_icon.icns"
+
+    if ico_path.exists() and icns_path.exists():
+        print("  app_icon.ico and app_icon.icns already exist — skipping generation.")
+        return
+
+    try:
+        from PIL import Image
+    except ImportError:
+        print("Pillow not installed — skipping .ico / .icns generation.")
+        print("Install with:  pip install Pillow")
+        return
+
+    img = Image.open(src).convert("RGBA")
+
+    # ── Windows .ico (multiple resolutions) ──
+    if not ico_path.exists():
+        ico_sizes = [16, 24, 32, 48, 64, 128, 256]
+        ico_images = [img.resize((s, s), Image.LANCZOS) for s in ico_sizes]
+        ico_images[0].save(
+            str(ico_path),
+            format="ICO",
+            sizes=[(s, s) for s in ico_sizes],
+            append_images=ico_images[1:],
+        )
+        print(f"  {ico_path}  ({', '.join(f'{s}px' for s in ico_sizes)})")
+
+    # ── macOS .icns ──
+    if not icns_path.exists():
+        icns_img = img.resize((512, 512), Image.LANCZOS) if img.size != (512, 512) else img
+        icns_img.save(str(icns_path), format="ICNS")
+        print(f"  {icns_path}")
 
 
 if __name__ == "__main__":

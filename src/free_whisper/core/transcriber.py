@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import gc
 import queue
+import threading
 from dataclasses import dataclass
 
 import numpy as np
@@ -43,6 +44,7 @@ class TranscriberWorker(QThread):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._queue: queue.Queue[TranscribeJob | None] = queue.Queue()
+        self._lock = threading.Lock()
         self._model = None
         self._loaded_model_size: str | None = None
         self._loaded_compute_type: str | None = None
@@ -64,13 +66,19 @@ class TranscriberWorker(QThread):
 
     def reload_model(self, model_size: str, compute_type: str) -> None:
         log.info("Model reload requested: %s / %s", model_size, compute_type)
-        self._loaded_model_size = None  # force reload on next job
+        with self._lock:
+            self._loaded_model_size = None  # force reload on next job
 
     # ------------------------------------------------------------------
     # QThread.run()
     # ------------------------------------------------------------------
 
     def run(self) -> None:
+        # Enable faulthandler so C++ crashes (segfaults in ctranslate2 /
+        # ONNX Runtime) produce a Python traceback instead of silent death.
+        import faulthandler
+        faulthandler.enable()
+
         log.info("Worker thread started")
         while self._running:
             try:
@@ -99,18 +107,30 @@ class TranscriberWorker(QThread):
     # ------------------------------------------------------------------
 
     def _ensure_model(self, model_size: str, compute_type: str) -> None:
-        if (
-            self._model is not None
-            and self._loaded_model_size == model_size
-            and self._loaded_compute_type == compute_type
-        ):
-            return  # already loaded
+        with self._lock:
+            if (
+                self._model is not None
+                and self._loaded_model_size == model_size
+                and self._loaded_compute_type == compute_type
+            ):
+                return  # already loaded
 
         if self._model is not None:
             log.info("Unloading %s", self._loaded_model_size)
-            del self._model
-            self._model = None
-            gc.collect()
+            try:
+                del self._model
+                self._model = None
+                try:
+                    import torch
+                    if torch.cuda.is_available():
+                        torch.cuda.synchronize()
+                        torch.cuda.empty_cache()
+                except ImportError:
+                    pass
+                gc.collect()
+            except Exception as exc:
+                log.warning("Error unloading model: %s", exc)
+                self._model = None
 
         self.model_loading.emit(model_size)
 
@@ -134,8 +154,9 @@ class TranscriberWorker(QThread):
                     model_size, device=device, compute_type=ct,
                     download_root=cache,
                 )
-                self._loaded_model_size = model_size
-                self._loaded_compute_type = compute_type
+                with self._lock:
+                    self._loaded_model_size = model_size
+                    self._loaded_compute_type = compute_type
                 log.info("Model ready: %s %s/%s", model_size, device, ct)
                 self.model_ready.emit(model_size)
                 return
@@ -170,7 +191,11 @@ class TranscriberWorker(QThread):
         segments, info = self._model.transcribe(job.audio, **kwargs)
 
         # Consume the lazy generator here (inference runs during iteration)
-        parts = [seg.text for seg in segments]
+        try:
+            parts = [seg.text for seg in segments]
+        except Exception as exc:
+            log.error("Error consuming segments: %s", exc)
+            raise RuntimeError(f"Segment error: {exc}") from exc
         text = "".join(parts).strip()
 
         log.info("Language: %s (%.2f) | segments: %d",

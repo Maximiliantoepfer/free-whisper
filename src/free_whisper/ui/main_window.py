@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+
 from PyQt6.QtCore import QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon
 from PyQt6.QtWidgets import (
@@ -24,6 +26,7 @@ class MainWindow(QMainWindow):
     hotkey_changed = pyqtSignal(str)
     model_changed = pyqtSignal(str, str)
     theme_changed = pyqtSignal(str)
+    quit_requested = pyqtSignal()
 
     def __init__(self, db: Database, settings: SettingsManager, parent=None) -> None:
         super().__init__(parent)
@@ -33,8 +36,14 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(800, 560)
         self.resize(960, 640)
 
-        # Set app icon
-        icon_path = get_assets_dir() / "icons" / "app_icon.png"
+        # Set window icon (use .ico on Windows for proper title bar display)
+        if sys.platform == "win32":
+            icon_file = "app_icon.ico"
+        elif sys.platform == "darwin":
+            icon_file = "app_icon.icns"
+        else:
+            icon_file = "app_icon.png"
+        icon_path = get_assets_dir() / "icons" / icon_file
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
 
@@ -106,12 +115,12 @@ class MainWindow(QMainWindow):
         # Nav buttons
         self._nav_buttons: list[QPushButton] = []
 
-        for icon_name, label, page_idx in [
-            ("📝", "Transcripts", 0),
-            ("📖", "Dictionary", 1),
-            ("⚙️", "Settings", 2),
+        for label, page_idx in [
+            ("Transcripts", 0),
+            ("Dictionary", 1),
+            ("Settings", 2),
         ]:
-            btn = QPushButton(f"  {icon_name}  {label}")
+            btn = QPushButton(label)
             btn.setCheckable(True)
             btn.setChecked(page_idx == 0)
             btn.clicked.connect(lambda checked, idx=page_idx: self._switch_page(idx))
@@ -145,7 +154,7 @@ class MainWindow(QMainWindow):
         for i, btn in enumerate(self._nav_buttons):
             btn.setChecked(i == active)
 
-    def set_status(self, text: str, color: str = "#606080") -> None:
+    def set_status(self, text: str, color: str = "#636366") -> None:
         self._status_label.setText(text)
         self._status_label.setStyleSheet(f"color: {color}; padding: 0 16px 16px 16px;")
 
@@ -155,4 +164,4 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         event.ignore()
-        self.hide()
+        self.quit_requested.emit()

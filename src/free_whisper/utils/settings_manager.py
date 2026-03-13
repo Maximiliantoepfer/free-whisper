@@ -10,7 +10,7 @@ class SettingsManager(QObject):
 
     _DEFAULTS = {
         "hotkey": "ctrl+shift+space",
-        "model_size": "large-v3-turbo",
+        "model_size": "small",
         "compute_type": "auto",
         "audio_device_index": "",
         "language": "",
