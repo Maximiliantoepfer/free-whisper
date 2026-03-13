@@ -100,12 +100,8 @@ def main() -> None:
     err_bg = _circle_rgba(size, 234, 179, 8)  # yellow-500
     (icons_dir / "tray_error.png").write_bytes(_make_png(size, size, err_bg))
 
-    # App icon: purple circle (larger)
-    app_size = 256
-    app_bg = _circle_rgba(app_size, 124, 58, 237)  # violet-600
-    (icons_dir / "app_icon.png").write_bytes(_make_png(app_size, app_size, app_bg))
-
     print(f"Icons written to {icons_dir}")
+    print("Note: app_icon.png is not regenerated (custom icon in use).")
 
 
 if __name__ == "__main__":
