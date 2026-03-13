@@ -15,6 +15,9 @@
       "Bash(grep -i \"\\\\.libs$\\\\|mkl\\\\|openblas\\\\|openmp\\\\|iomp\")",
       "Bash(pip install:*)",
       "Bash(python -c \":*)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\maxto\\.claude\\plans"
     ]
   }
 }
