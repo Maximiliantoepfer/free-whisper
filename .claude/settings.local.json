@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(python3 -c \"from src.free_whisper.utils.platform_utils import get_assets_dir; print\\(''Assets dir:'', get_assets_dir\\(\\)\\)\")",
+      "Bash(find C:Usersmaxtosourcefree-whisper.claudeworktreeszealous-albattani -type f \\\\\\(-name *.log -o -name *crash* -o -name *error* \\\\\\))",
+      "Bash(find /c/Users/maxto/source/free-whisper/.claude/worktrees/zealous-albattani -type f \\\\\\(-name *icon* -o -name *assets* -o -name generate_icons.py \\\\\\))",
+      "Bash(find /c/Users/maxto/source/free-whisper/.claude/worktrees/zealous-albattani -name *.qss -o -name *theme* -o -name *style*)",
+      "Bash(ls -la \"C:\\\\Users\\\\maxto\\\\source\\\\free-whisper\\\\.claude\\\\worktrees\\\\zealous-albattani\\\\.claude\"\" 2>/dev/null || echo \"Directory not found or empty \")",
+      "Bash(pip list:*)",
+      "Bash(python -c \"import free_whisper; import os; print\\(os.path.dirname\\(free_whisper.__file__\\)\\)\")",
+      "Bash(pip show:*)",
+      "Bash(python -c \"from free_whisper.utils.platform_utils import get_assets_dir; print\\(get_assets_dir\\(\\)\\)\")",
+      "Bash(python -c \"import free_whisper; print\\(free_whisper.__file__\\)\")"
+    ]
+  }
+}
