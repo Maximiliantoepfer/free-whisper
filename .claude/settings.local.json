@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git ls-tree:*)",
+      "Bash(git -C /c/Users/maxto/source/free-whisper/.claude/worktrees/confident-davinci log --oneline -10)",
+      "Bash(pip show:*)",
+      "Bash(python scripts/generate_icons.py)",
+      "Bash(python -c \":*)",
+      "Bash(.venv/Scripts/python.exe -c \"import sys; print\\(sys.version\\)\")",
+      "Bash(.venv/Scripts/python.exe -c \"import PyQt6; print\\(PyQt6.__version__\\)\")",
+      "Bash(.venv/Scripts/python.exe -c \"import PyQt6.QtCore\")",
+      "Bash(.venv/Scripts/pip show:*)",
+      "Bash(.venv/Scripts/pip install:*)",
+      "Bash(.venv/Scripts/python.exe -c \"from PyQt6.QtWidgets import QApplication; print\\(''PyQt6 OK''\\)\")",
+      "Bash(.venv/Scripts/python.exe -c \":*)",
+      "Bash(python -c \"from PyQt6.QtWidgets import QKeySequenceEdit; e = QKeySequenceEdit\\(\\); print\\(hasattr\\(e, ''''setMaximumSequenceCount''''\\)\\); print\\(dir\\(e\\)\\)\")",
+      "Read(//c/Users/maxto/source/free-whisper/**)",
+      "Bash(python -c \"from PyQt6.QtWidgets import QKeySequenceEdit, QApplication; app = QApplication\\([]\\); e = QKeySequenceEdit\\(\\); print\\(''setMaximumSequenceCount'' in dir\\(e\\)\\)\")",
+      "Bash(where python:*)",
+      "Bash(C:UsersmaxtoAppDataLocalProgramsPythonPython312python.exe -c \"import PyQt6; print\\(PyQt6\\)\")",
+      "Bash(\"C:/Users/maxto/AppData/Local/Programs/Python/Python312/python.exe\" -c \"import PyQt6; print\\(PyQt6\\)\")",
+      "Bash(\"C:/Users/maxto/AppData/Local/Programs/Python/Python312/python.exe\" -m pip list)",
+      "WebSearch",
+      "WebFetch(domain:sl-alex.net)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:forum.qt.io)",
+      "WebFetch(domain:www.riverbankcomputing.com)"
+    ]
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "free-whisper",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "free_whisper"],
+      "port": 0
+    }
+  ]
+}
