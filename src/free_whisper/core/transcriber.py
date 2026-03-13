@@ -208,6 +208,9 @@ class TranscriberWorker(QThread):
 
     @staticmethod
     def _resolve_device(compute_type: str) -> str:
+        import sys
+        if getattr(sys, "frozen", False):
+            return "cpu"  # CUDA DLLs not reliably available in frozen builds
         if compute_type == "float16":
             try:
                 import ctranslate2
