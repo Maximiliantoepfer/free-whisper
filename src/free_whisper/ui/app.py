@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 
 from PyQt6.QtCore import QTimer, Qt, pyqtSlot
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
 
 from ..core.audio_recorder import AudioRecorder
@@ -28,6 +29,11 @@ class FreeWhisperApp(QApplication):
         self.setApplicationName("free-whisper")
         self.setOrganizationName("free-whisper")
         self.setQuitOnLastWindowClosed(False)
+
+        # Set app icon at the QApplication level so it appears in the taskbar
+        icon_path = get_assets_dir() / "icons" / "app_icon.png"
+        if icon_path.exists():
+            self.setWindowIcon(QIcon(str(icon_path)))
 
         # Load stylesheet
         self._load_stylesheet()
@@ -69,6 +75,7 @@ class FreeWhisperApp(QApplication):
         self._window.hotkey_changed.connect(self._hotkey_listener.update_hotkey)
         self._window.model_changed.connect(self._on_model_settings_changed)
         self._window.theme_changed.connect(self._load_stylesheet)
+        self._window.quit_requested.connect(self.quit_app)
 
         # Pause the global hotkey while the user is capturing a new one
         sp = self._window._settings_page

@@ -24,6 +24,7 @@ class MainWindow(QMainWindow):
     hotkey_changed = pyqtSignal(str)
     model_changed = pyqtSignal(str, str)
     theme_changed = pyqtSignal(str)
+    quit_requested = pyqtSignal()
 
     def __init__(self, db: Database, settings: SettingsManager, parent=None) -> None:
         super().__init__(parent)
@@ -155,4 +156,4 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         event.ignore()
-        self.hide()
+        self.quit_requested.emit()
