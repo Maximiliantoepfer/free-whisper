@@ -71,6 +71,11 @@ class TranscriberWorker(QThread):
     # ------------------------------------------------------------------
 
     def run(self) -> None:
+        # Enable faulthandler so C++ crashes (segfaults in ctranslate2 /
+        # ONNX Runtime) produce a Python traceback instead of silent death.
+        import faulthandler
+        faulthandler.enable()
+
         log.info("Worker thread started")
         while self._running:
             try:

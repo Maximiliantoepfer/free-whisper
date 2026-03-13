@@ -22,6 +22,14 @@ from ...utils.settings_manager import SettingsManager
 from ...core.audio_recorder import AudioRecorder
 
 
+class NoScrollComboBox(QComboBox):
+    """QComboBox that ignores wheel events so scrolling the page doesn't
+    accidentally change the selected value."""
+
+    def wheelEvent(self, event):
+        event.ignore()
+
+
 MODELS = [
     "tiny", "base", "small", "medium", "large-v2", "large-v3", "large-v3-turbo",
 ]
@@ -238,7 +246,7 @@ class SettingsPage(QWidget):
         self._hotkey_widget.capture_ended.connect(self.hotkey_capture_ended)
         form.addRow("Hotkey:", self._hotkey_widget)
 
-        self._mode_combo = QComboBox()
+        self._mode_combo = NoScrollComboBox()
         self._mode_combo.addItem("Push to talk", "push_to_talk")
         self._mode_combo.addItem("Toggle + auto-stop", "toggle")
         self._mode_combo.currentIndexChanged.connect(self._on_mode_changed)
@@ -250,7 +258,7 @@ class SettingsPage(QWidget):
         self._silence_spin.valueChanged.connect(lambda v: self._settings.set_vad_silence_ms(v))
         form.addRow("Silence timeout:", self._silence_spin)
 
-        self._device_combo = QComboBox()
+        self._device_combo = NoScrollComboBox()
         self._populate_audio_devices()
         self._device_combo.currentIndexChanged.connect(self._on_device_changed)
         form.addRow("Audio device:", self._device_combo)
@@ -262,19 +270,19 @@ class SettingsPage(QWidget):
         form = QFormLayout(group)
         form.setSpacing(12)
 
-        self._model_combo = QComboBox()
+        self._model_combo = NoScrollComboBox()
         for m in MODELS:
             self._model_combo.addItem(m, m)
         self._model_combo.currentIndexChanged.connect(self._on_model_changed)
         form.addRow("Model:", self._model_combo)
 
-        self._compute_combo = QComboBox()
+        self._compute_combo = NoScrollComboBox()
         for c in COMPUTE_TYPES:
             self._compute_combo.addItem(c, c)
         self._compute_combo.currentIndexChanged.connect(self._on_model_changed)
         form.addRow("Compute type:", self._compute_combo)
 
-        self._lang_combo = QComboBox()
+        self._lang_combo = NoScrollComboBox()
         for label, code in LANGUAGES:
             self._lang_combo.addItem(label, code)
         self._lang_combo.currentIndexChanged.connect(self._on_lang_changed)
@@ -311,7 +319,7 @@ class SettingsPage(QWidget):
         form = QFormLayout(group)
         form.setSpacing(12)
 
-        self._theme_combo = QComboBox()
+        self._theme_combo = NoScrollComboBox()
         self._theme_combo.addItem("Dark", "dark")
         self._theme_combo.addItem("Light", "light")
         self._theme_combo.currentIndexChanged.connect(self._on_theme_changed)
@@ -330,7 +338,7 @@ class SettingsPage(QWidget):
         else:
             self._login_cb = None
 
-        self._log_level_combo = QComboBox()
+        self._log_level_combo = NoScrollComboBox()
         self._log_level_combo.addItem("Debug", "debug")
         self._log_level_combo.addItem("Info", "info")
         self._log_level_combo.addItem("Warning", "warning")
@@ -341,6 +349,17 @@ class SettingsPage(QWidget):
 
     def _load_values(self) -> None:
         s = self._settings
+
+        # Block signals while loading saved values so that
+        # currentIndexChanged doesn't fire spurious model reload requests.
+        combos = [
+            self._mode_combo, self._device_combo, self._model_combo,
+            self._compute_combo, self._lang_combo, self._theme_combo,
+            self._log_level_combo,
+        ]
+        for c in combos:
+            c.blockSignals(True)
+
         self._hotkey_widget.set_hotkey(s.get_hotkey())
 
         idx = self._mode_combo.findData(s.get_recording_mode())
@@ -370,6 +389,9 @@ class SettingsPage(QWidget):
         idx = self._log_level_combo.findData(s.get_log_level())
         if idx >= 0:
             self._log_level_combo.setCurrentIndex(idx)
+
+        for c in combos:
+            c.blockSignals(False)
 
     def _on_hotkey_changed(self, hotkey: str) -> None:
         if hotkey:

@@ -229,11 +229,9 @@ class FreeWhisperApp(QApplication):
         self._overlay.hide_overlay()
         self._window.set_status("⚠ Error", "#eab308")
         self._tray.show_error(f"Transcription failed: {error}")
-        # Reset to idle after a delay
-        QTimer.singleShot(5000, lambda: (
-            self._tray.set_state(TrayState.IDLE),
-            self._window.set_status("● Idle", "#606080"),
-        ))
+        # Reset to idle after a delay (use bound method, not lambda,
+        # so it's safe if the app quits before the timer fires)
+        QTimer.singleShot(5000, self._reset_to_idle)
 
     @pyqtSlot(str)
     def _on_model_loading(self, model_size: str) -> None:
@@ -253,6 +251,11 @@ class FreeWhisperApp(QApplication):
         self._tray.set_state(TrayState.ERROR)
         self._window.set_status("⚠ Model error", "#eab308")
         self._tray.show_error(f"Model load failed: {error}")
+
+    def _reset_to_idle(self) -> None:
+        """Timer callback to clear error state after a delay."""
+        self._tray.set_state(TrayState.IDLE)
+        self._window.set_status("● Idle", "#606080")
 
     # ------------------------------------------------------------------
     # Settings changes
