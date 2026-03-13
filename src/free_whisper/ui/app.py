@@ -158,13 +158,13 @@ class FreeWhisperApp(QApplication):
         if audio.size == 0:
             self._tray.set_state(TrayState.IDLE)
             self._overlay.hide_overlay()
-            self._window.set_status("● Idle", "#606080")
+            self._window.set_status("● Idle", "#636366")
             return
 
         duration_ms = self._recorder.duration_ms
         self._tray.set_state(TrayState.PROCESSING)
         self._overlay.show_processing()
-        self._window.set_status("⏳ Transcribing…", "#f59e0b")
+        self._window.set_status("⏳ Transcribing…", "#ff9f0a")
 
         self._job_counter += 1
         job = TranscribeJob(
@@ -193,7 +193,7 @@ class FreeWhisperApp(QApplication):
     def _on_transcription_ready(self, text: str, duration_ms: int, job_id: int) -> None:
         self._tray.set_state(TrayState.IDLE)
         self._overlay.hide_overlay()
-        self._window.set_status("● Idle", "#606080")
+        self._window.set_status("● Idle", "#636366")
 
         if not text:
             log.info("Transcription returned empty text (job %d)", job_id)
@@ -227,7 +227,7 @@ class FreeWhisperApp(QApplication):
         log.warning("Transcription failed (job %d): %s", job_id, error)
         self._tray.set_state(TrayState.ERROR)
         self._overlay.hide_overlay()
-        self._window.set_status("⚠ Error", "#eab308")
+        self._window.set_status("⚠ Error", "#ff9f0a")
         self._tray.show_error(f"Transcription failed: {error}")
         # Reset to idle after a delay (use bound method, not lambda,
         # so it's safe if the app quits before the timer fires)
@@ -237,25 +237,25 @@ class FreeWhisperApp(QApplication):
     def _on_model_loading(self, model_size: str) -> None:
         log.info("Model loading: %s", model_size)
         self._tray.set_state(TrayState.PROCESSING)
-        self._window.set_status(f"⏳ Loading {model_size}…", "#f59e0b")
+        self._window.set_status(f"⏳ Loading {model_size}…", "#ff9f0a")
 
     @pyqtSlot(str)
     def _on_model_ready(self, model_size: str) -> None:
         log.info("Model ready: %s", model_size)
         self._tray.set_state(TrayState.IDLE)
-        self._window.set_status("● Idle", "#606080")
+        self._window.set_status("● Idle", "#636366")
 
     @pyqtSlot(str)
     def _on_model_load_failed(self, error: str) -> None:
         log.error("Model load failed: %s", error)
         self._tray.set_state(TrayState.ERROR)
-        self._window.set_status("⚠ Model error", "#eab308")
+        self._window.set_status("⚠ Model error", "#ff9f0a")
         self._tray.show_error(f"Model load failed: {error}")
 
     def _reset_to_idle(self) -> None:
         """Timer callback to clear error state after a delay."""
         self._tray.set_state(TrayState.IDLE)
-        self._window.set_status("● Idle", "#606080")
+        self._window.set_status("● Idle", "#636366")
 
     # ------------------------------------------------------------------
     # Settings changes

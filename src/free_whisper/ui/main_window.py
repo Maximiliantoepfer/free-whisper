@@ -115,12 +115,12 @@ class MainWindow(QMainWindow):
         # Nav buttons
         self._nav_buttons: list[QPushButton] = []
 
-        for icon_name, label, page_idx in [
-            ("📝", "Transcripts", 0),
-            ("📖", "Dictionary", 1),
-            ("⚙️", "Settings", 2),
+        for label, page_idx in [
+            ("Transcripts", 0),
+            ("Dictionary", 1),
+            ("Settings", 2),
         ]:
-            btn = QPushButton(f"  {icon_name}  {label}")
+            btn = QPushButton(label)
             btn.setCheckable(True)
             btn.setChecked(page_idx == 0)
             btn.clicked.connect(lambda checked, idx=page_idx: self._switch_page(idx))
@@ -154,7 +154,7 @@ class MainWindow(QMainWindow):
         for i, btn in enumerate(self._nav_buttons):
             btn.setChecked(i == active)
 
-    def set_status(self, text: str, color: str = "#606080") -> None:
+    def set_status(self, text: str, color: str = "#636366") -> None:
         self._status_label.setText(text)
         self._status_label.setStyleSheet(f"color: {color}; padding: 0 16px 16px 16px;")
 

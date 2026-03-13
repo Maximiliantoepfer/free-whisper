@@ -24,10 +24,18 @@ from ...core.audio_recorder import AudioRecorder
 
 class NoScrollComboBox(QComboBox):
     """QComboBox that ignores wheel events so scrolling the page doesn't
-    accidentally change the selected value."""
+    accidentally change the selected value.  Only allows wheel input when
+    the widget explicitly has keyboard focus (i.e. the user clicked it)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
     def wheelEvent(self, event):
-        event.ignore()
+        if self.hasFocus():
+            super().wheelEvent(event)
+        else:
+            event.ignore()
 
 
 MODELS = [
