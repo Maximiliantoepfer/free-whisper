@@ -30,8 +30,15 @@ class FreeWhisperApp(QApplication):
         self.setOrganizationName("free-whisper")
         self.setQuitOnLastWindowClosed(False)
 
-        # Set app icon at the QApplication level so it appears in the taskbar
-        icon_path = get_assets_dir() / "icons" / "app_icon.png"
+        # Set app icon at the QApplication level so it appears in the taskbar.
+        # Windows needs .ico for proper Shell integration (taskbar, Alt+Tab).
+        if sys.platform == "win32":
+            icon_file = "app_icon.ico"
+        elif sys.platform == "darwin":
+            icon_file = "app_icon.icns"
+        else:
+            icon_file = "app_icon.png"
+        icon_path = get_assets_dir() / "icons" / icon_file
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
 

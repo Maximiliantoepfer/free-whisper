@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+
 from PyQt6.QtCore import QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon
 from PyQt6.QtWidgets import (
@@ -34,8 +36,14 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(800, 560)
         self.resize(960, 640)
 
-        # Set app icon
-        icon_path = get_assets_dir() / "icons" / "app_icon.png"
+        # Set window icon (use .ico on Windows for proper title bar display)
+        if sys.platform == "win32":
+            icon_file = "app_icon.ico"
+        elif sys.platform == "darwin":
+            icon_file = "app_icon.icns"
+        else:
+            icon_file = "app_icon.png"
+        icon_path = get_assets_dir() / "icons" / icon_file
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
 
