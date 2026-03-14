@@ -54,3 +54,7 @@ models/
 
 # Logs
 *.log
+
+# AI-generated files
+.claude/
+.agents/
