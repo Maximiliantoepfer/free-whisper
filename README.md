@@ -75,3 +75,15 @@ free-whisper/
 ├── free-whisper.spec     # PyInstaller Build-Konfiguration
 └── pyproject.toml        # Projekt-Metadaten & Abhängigkeiten
 ```
+
+---
+
+## Der zentrale Datenfluss ist:
+
+1. Benutzer drückt Hotkey → HotkeyListener feuert Signal
+2. FreeWhisperApp startet Audioaufnahme via AudioRecorder
+3. Hotkey loslassen → Audio wird als TranscribeJob an TranscriberWorker geschickt
+4. Worker transkribiert mit faster-whisper im Hintergrund-Thread
+5. Ergebnis kommt zurück → TextInjector fügt Text via Clipboard+Ctrl+V ein
+6. Transkript wird in SQLite gespeichert
+
