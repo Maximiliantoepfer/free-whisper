@@ -1,7 +1,15 @@
+import sys, os
+
+# When console=False, sys.stderr/stdout are None — redirect to devnull
+# so that faulthandler and print() don't crash.
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, "w")
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, "w")
+
 import faulthandler
 faulthandler.enable()
 
-import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 if getattr(sys, "frozen", False):
