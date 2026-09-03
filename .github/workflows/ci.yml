@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@a53b4f3246b1a3a8e53830a6f1c748b0955909e7
+        with:
+          toolchain: 1.97.1
+          components: rustfmt, clippy
+      - uses: pnpm/action-setup@a748d99fc2de1a262e1640c2fc38e510b40f4e9f
+        with:
+          version: 11.19.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: 22.12.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - shell: pwsh
+        run: ./scripts/prepare-sidecars.ps1
+      - run: cargo run --locked -p free-whisper-model-manager --bin verify-model-manifest -- resources/models/manifest.json resources/models/manifest.sig resources/models/manifest.public-key --scope alpha
+      - run: cargo fmt --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace --features free-whisper-worker/test-fixture
+      - run: cargo install cargo-deny --version 0.20.2 --locked
+      - run: cargo deny check --hide-inclusion-graph
+      - run: pnpm ui:check
+      - run: pnpm ui:test
+      - shell: pwsh
+        run: pnpm bindings:check
+      - run: pnpm ui:licenses
+      - run: pnpm licenses:check
+      - run: pnpm tauri:build

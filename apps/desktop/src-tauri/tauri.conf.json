@@ -1,0 +1,44 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "free-whisper",
+  "version": "2.0.0-alpha.1",
+  "identifier": "io.github.maximiliantoepfer.free-whisper",
+  "build": {
+    "beforeDevCommand": "corepack pnpm --dir ui dev",
+    "beforeBuildCommand": "corepack pnpm --dir ui build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../ui/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "free-whisper",
+        "width": 1080,
+        "height": 720,
+        "minWidth": 800,
+        "minHeight": 560
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": [
+      "icons/icon.ico",
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png"
+    ],
+    "externalBin": ["binaries/free-whisper-worker"],
+    "resources": ["binaries/whisper-server.exe", "binaries/*.dll"],
+    "windows": {
+      "nsis": {
+        "displayLanguageSelector": false
+      }
+    }
+  }
+}

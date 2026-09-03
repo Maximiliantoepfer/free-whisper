@@ -1,0 +1,13 @@
+[package]
+name = "free-whisper-platform-windows"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+arboard.workspace = true
+free-whisper-domain = { path = "../domain" }
+serde.workspace = true
+thiserror.workspace = true
+windows-sys.workspace = true

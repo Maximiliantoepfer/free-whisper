@@ -1,0 +1,27 @@
+[graph]
+all-features = true
+targets = ["x86_64-pc-windows-msvc"]
+
+[advisories]
+version = 2
+yanked = "warn"
+ignore = [
+  { id = "RUSTSEC-2025-0075", reason = "Tauri's urlpattern dependency still selects this unmaintained Unicode helper; the advisory reports no safe upgrade. Review on every Tauri update." },
+  { id = "RUSTSEC-2025-0080", reason = "Tauri's urlpattern dependency still selects this unmaintained Unicode helper; the advisory reports no safe upgrade. Review on every Tauri update." },
+  { id = "RUSTSEC-2025-0081", reason = "Tauri's urlpattern dependency still selects this unmaintained Unicode helper; the advisory reports no safe upgrade. Review on every Tauri update." },
+  { id = "RUSTSEC-2025-0098", reason = "Tauri's urlpattern dependency still selects this unmaintained Unicode helper; the advisory reports no safe upgrade. Review on every Tauri update." },
+  { id = "RUSTSEC-2025-0100", reason = "Tauri's urlpattern dependency still selects this unmaintained Unicode helper; the advisory reports no safe upgrade. Review on every Tauri update." }
+]
+
+[licenses]
+version = 2
+allow = ["MIT", "Apache-2.0", "BSD-3-Clause", "BSL-1.0", "CDLA-Permissive-2.0", "ISC", "MPL-2.0", "Unicode-3.0", "Zlib"]
+confidence-threshold = 0.8
+
+[bans]
+multiple-versions = "warn"
+wildcards = "warn"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

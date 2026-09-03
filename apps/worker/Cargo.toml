@@ -1,0 +1,32 @@
+[package]
+name = "free-whisper-worker"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+test-fixture = []
+
+[[bin]]
+name = "fake-whisper-server"
+path = "src/bin/fake-whisper-server.rs"
+required-features = ["test-fixture"]
+
+[dependencies]
+async-trait.workspace = true
+axum.workspace = true
+bytes.workspace = true
+free-whisper-protocol = { path = "../../crates/protocol" }
+http.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tower.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

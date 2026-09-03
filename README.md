@@ -1,89 +1,116 @@
-# free-whisper
+# free-whisper v2
 
-OpenSource Project for local and cloud based whisper based speech-to-text platform.
+Free, open-source, offline-first transcription for Windows. V2 is a Rust/Tauri
+desktop application that records audio locally, transcribes through a managed
+local worker, applies conservative lexicon corrections and copies the result
+only after an explicit user action.
 
----
+## Status
 
-## Setup (Development)
+V2 is under active reimplementation. The prior Python/PyQt release is archived
+at [`old/python/`](old/python/) for data migration and historical reference; it
+is not part of the v2 build or runtime.
 
-**Voraussetzungen:** Python 3.10+
+## Principles
 
-```
-python -m venv .venv
-.venv\Scripts\activate
-pip install -e .
-```
+- No account, telemetry, or compulsory cloud service.
+- Models are downloaded only after confirmation and operate offline afterwards.
+- Audio leaves the device only for an explicitly configured remote provider.
+- Transcript corrections are exact, visible, and individually reversible.
+- Secrets use the Windows Credential Manager rather than SQLite or logs.
 
-`pip install -e .` installiert alle Runtime-Abhängigkeiten aus `pyproject.toml`.
-Für reproduzierbare Builds mit gepinnten Versionen stattdessen:
+See [architecture](docs/architecture.md), [privacy](docs/privacy.md), and the
+[implementation plan](docs/planning/v2-implementation.md).
 
-```
-pip install -r requirements.txt && pip install -e . --no-deps
-```
+The shipped Alpha catalogue is Ed25519-signed and can therefore install models
+after an explicit click. Contributors who change the catalogue provision their
+own local Alpha signing seed with
+`./scripts/provision-alpha-manifest.ps1`; the generated `.env.alpha.local` is
+ignored and never enters the product. Stable releases use a separate secret and
+reject Alpha catalogues. See [the model-manifest guide](docs/model-manifest.md).
 
-App starten:
+## Current vertical slice
 
-```
-free-whisper
-```
+After the signed Alpha manifest has been provisioned, the desktop app supports:
 
----
+- choosing Tiny, Base or Small with download size, RAM estimate, license and
+  source information;
+- resumable, checksummed installation and explicit activation of one local CPU
+  model;
+- microphone selection, bounded local capture, 16-kHz mono normalisation and
+  voice/silence validation;
+- local whisper.cpp worker transcription, conservative lexicon corrections,
+  local transcript history and explicit clipboard copying;
+- Windows tray lifecycle and the global default hotkey `Ctrl+Alt+Leertaste`;
+- optional Auto-Paste, guarded by an exact HWND/PID/process-start snapshot,
+  UAC detection and a conditional Windows clipboard sequence-counter restore.
+- a local lexicon workspace with profiles, explicit variants, transactional
+  CSV/JSON import/export, literal transcript search and individual correction
+  reverts;
+- local provider readiness without starting a worker or transferring audio.
+- a tested, explicitly selected personal remote worker with HTTPS-by-default,
+  selected ready model and a bearer token held only in Windows Credential
+  Manager.
 
-## Als .exe kompilieren (Windows)
+The confirmed legacy migration assistant, benchmark corpus and release report
+remain M9 work. The release-security gate for the signed model catalogue remains
+unchanged.
 
-**Voraussetzungen:** Python 3.10+, PyInstaller
+## Development bootstrap
 
-```
-pip install -r requirements-dev.txt
-```
+Windows x64 requires Rust 1.97.1 with the MSVC target, Visual Studio C++ Build
+Tools, CMake, Node.js 22.12.0, and pnpm 11.19.0. Once dependencies are installed:
 
-Build ausführen:
-
-```
-python -m PyInstaller free-whisper.spec
-```
-
-Die fertige EXE liegt unter `dist\free-whisper\free-whisper.exe` (Ordner-Build, keine einzelne Datei).
-
-### Debug- vs. Release-Build
-
-In `free-whisper.spec` im `EXE()`-Block die Option `console` anpassen:
-
-| Variante | Einstellung | Beschreibung |
-|----------|-------------|--------------|
-| **Debug** | `console=True` | Konsolenfenster bleibt offen — zeigt Logs und Fehlermeldungen |
-| **Release** | `console=False` | Kein Konsolenfenster — für das fertige Produkt |
-
-### Hinweise
-
-- Der Build nutzt `app_entry.py` als Entry-Point (kein direkter Aufruf von `main.py`, da relative Imports genutzt werden)
-- `free-whisper.spec` enthält alle nötigen Konfigurationen für `faster_whisper`, `ctranslate2` und `onnxruntime`
-- CUDA-DLLs (`cudnn64_9.dll`) werden bewusst ausgeschlossen — der Frozen-Build nutzt ausschließlich CPU/int8
-- Bei Änderungen an den Assets muss neu gebaut werden
-
----
-
-## Projektstruktur
-
-```
-free-whisper/
-├── src/free_whisper/     # Quellcode (Package)
-│   ├── core/             # Transkriptions-Engine, Audio-Handling
-│   └── ui/               # PyQt6-Oberfläche
-├── assets/               # Icons, etc.
-├── app_entry.py          # PyInstaller Entry-Point
-├── free-whisper.spec     # PyInstaller Build-Konfiguration
-└── pyproject.toml        # Projekt-Metadaten & Abhängigkeiten
+```powershell
+pnpm install --frozen-lockfile
+./scripts/prepare-sidecars.ps1
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace --features free-whisper-worker/test-fixture
+pnpm ui:check
+pnpm ui:test
+pnpm licenses:check
 ```
 
----
+`pnpm tauri:build` creates the Windows x64 NSIS installer after the same
+sidecar preparation. Use Node.js **22.12.0** exactly; `.node-version` and CI
+enforce that version.
 
-## Der zentrale Datenfluss ist:
+For an interactive development window, run:
 
-1. Benutzer drückt Hotkey → HotkeyListener feuert Signal
-2. FreeWhisperApp startet Audioaufnahme via AudioRecorder
-3. Hotkey loslassen → Audio wird als TranscribeJob an TranscriberWorker geschickt
-4. Worker transkribiert mit faster-whisper im Hintergrund-Thread
-5. Ergebnis kommt zurück → TextInjector fügt Text via Clipboard+Ctrl+V ein
-6. Transkript wird in SQLite gespeichert
+```powershell
+pnpm tauri:dev
+```
 
+If `pnpm` is not globally available, Corepack can run the pinned package
+manager without an administrator-installed shim:
+
+```powershell
+corepack pnpm install --frozen-lockfile
+.\scripts\prepare-sidecars.ps1
+corepack pnpm tauri:dev
+```
+
+Run `./scripts/provision-alpha-manifest.ps1` only when changing the Alpha
+catalogue. A real local transcription needs an explicitly installed model and
+a working microphone.
+
+
+## Developer Start
+
+```bash
+pnpm install --frozen-lockfile
+./scripts/prepare-sidecars.ps1
+pnpm tauri:dev
+```
+
+```bash
+corepack pnpm --version
+corepack pnpm install --frozen-lockfile
+.\scripts\prepare-sidecars.ps1
+corepack pnpm --dir apps/desktop run tauri:dev
+```
+
+```bash
+corepack pnpm tauri:dev
+```

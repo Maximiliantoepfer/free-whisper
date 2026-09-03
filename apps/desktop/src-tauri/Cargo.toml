@@ -1,0 +1,31 @@
+[package]
+name = "free-whisper-desktop"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[lib]
+name = "free_whisper_desktop_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.5.6", features = [] }
+
+[dependencies]
+free-whisper-application = { path = "../../../crates/application" }
+free-whisper-audio = { path = "../../../crates/audio" }
+free-whisper-domain = { path = "../../../crates/domain" }
+free-whisper-lexicon = { path = "../../../crates/lexicon" }
+free-whisper-model-manager = { path = "../../../crates/model-manager" }
+free-whisper-platform-windows = { path = "../../../crates/platform-windows" }
+free-whisper-providers = { path = "../../../crates/providers" }
+free-whisper-storage = { path = "../../../crates/storage" }
+serde.workspace = true
+serde_json.workspace = true
+tauri = { version = "2.10.2", features = ["tray-icon"] }
+time.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+uuid.workspace = true

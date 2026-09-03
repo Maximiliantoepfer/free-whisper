@@ -1,0 +1,10 @@
+[package]
+name = "free-whisper-application"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+free-whisper-domain = { path = "../domain" }
+thiserror.workspace = true

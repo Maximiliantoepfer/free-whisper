@@ -1,0 +1,11 @@
+[package]
+name = "free-whisper-test-support"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+free-whisper-domain = { path = "../domain" }
+free-whisper-providers = { path = "../providers" }

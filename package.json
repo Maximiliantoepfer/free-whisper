@@ -1,0 +1,18 @@
+{
+  "name": "free-whisper-workspace",
+  "private": true,
+  "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": "22.12.0"
+  },
+  "scripts": {
+    "ui:check": "corepack pnpm --dir apps/desktop/ui check",
+    "ui:test": "corepack pnpm --dir apps/desktop/ui test:run",
+    "ui:licenses": "node scripts/check-js-licenses.mjs",
+    "licenses:generate": "node scripts/generate-third-party-notices.mjs",
+    "licenses:check": "node scripts/generate-third-party-notices.mjs --check",
+    "bindings:check": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-desktop-command-bindings.ps1",
+    "tauri:dev": "corepack pnpm --dir apps/desktop run tauri:dev",
+    "tauri:build": "corepack pnpm --dir apps/desktop run tauri:build"
+  }
+}

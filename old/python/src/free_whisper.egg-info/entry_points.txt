@@ -1,0 +1,2 @@
+[console_scripts]
+free-whisper = free_whisper.main:main

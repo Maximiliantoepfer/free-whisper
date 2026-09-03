@@ -1,0 +1,8 @@
+packages:
+  - apps/desktop
+  - apps/desktop/ui
+
+onlyBuiltDependencies:
+  - esbuild
+allowBuilds:
+  esbuild: true

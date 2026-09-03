@@ -1,0 +1,19 @@
+{
+  "task": "transcribe",
+  "language": "german",
+  "detected_language": "german",
+  "detected_language_probability": 0.998,
+  "duration": 1.25,
+  "text": "fixture transcript that must never be included in an error",
+  "segments": [
+    {
+      "id": 0,
+      "text": "fixture transcript that must never be included in an error",
+      "start": 0.23,
+      "end": 1.25,
+      "temperature": 0,
+      "avg_logprob": -0.4,
+      "no_speech_prob": 0.02
+    }
+  ]
+}
