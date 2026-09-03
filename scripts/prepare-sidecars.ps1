@@ -36,9 +36,15 @@ foreach ($file in @($worker, $server)) {
 
 New-Item -ItemType Directory -Force -Path $output | Out-Null
 # Tauri resolves external binaries using this exact target-suffixed filename.
-Copy-Item -LiteralPath $worker -Destination (Join-Path $output "free-whisper-worker-$Target.exe") -Force
+$stagedWorker = Join-Path $output "free-whisper-worker-$Target.exe"
+Copy-Item -LiteralPath $worker -Destination $stagedWorker -Force
 Copy-Item -LiteralPath $server -Destination (Join-Path $output 'whisper-server.exe') -Force
 Get-ChildItem -LiteralPath (Join-Path $root 'target/sidecars') -File -Filter '*.dll' |
     ForEach-Object {
         Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $output $_.Name) -Force
     }
+
+# A compiled sidecar is deliberately ignored by Git. Verify the actual staged
+# executable so a developer build and an installer cannot silently reuse a
+# worker compiled before the pinned verbose_json adapter changed.
+& (Join-Path $root 'scripts/verify-sidecars.ps1') -WorkerPath $stagedWorker -RequireServer

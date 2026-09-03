@@ -12,7 +12,7 @@
     "licenses:generate": "node scripts/generate-third-party-notices.mjs",
     "licenses:check": "node scripts/generate-third-party-notices.mjs --check",
     "bindings:check": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-desktop-command-bindings.ps1",
-    "tauri:dev": "corepack pnpm --dir apps/desktop run tauri:dev",
-    "tauri:build": "corepack pnpm --dir apps/desktop run tauri:build"
+    "tauri:dev": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-sidecars.ps1 && corepack pnpm --dir apps/desktop run tauri:dev",
+    "tauri:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-sidecars.ps1 && corepack pnpm --dir apps/desktop run tauri:build"
   }
 }

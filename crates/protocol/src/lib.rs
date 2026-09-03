@@ -8,6 +8,13 @@ use uuid::Uuid;
 /// Every remote API response carries this protocol version.
 pub const API_VERSION: u16 = 1;
 
+/// Identity of the pinned inner-engine response adapter bundled by the local
+/// worker. It is checked before the desktop hands it microphone audio.
+pub const LOCAL_WORKER_ADAPTER_ID: &str = "whispercpp-v1.8.6-verbose-json-start-end";
+
+/// Stable prefix of the token-free local-worker build-info line.
+pub const LOCAL_WORKER_BUILD_INFO_PREFIX: &str = "free-whisper-worker";
+
 /// Implemented by every JSON response at the public worker boundary.
 /// Clients must reject a response from another major protocol version rather
 /// than guessing its meaning.

@@ -23,4 +23,13 @@ if ($missingFromFrontend -or $unknownToBackend) {
     throw 'Desktop command bindings have drifted'
 }
 
+$requiredBackendFields = @('sequence: u64', 'capture_phase: CapturePhaseView', 'active_job_id: Option<String>')
+$requiredFrontendFields = @('sequence: number', 'capturePhase: CapturePhase', 'activeJobId: string | null')
+foreach ($field in $requiredBackendFields) {
+    if (-not $backend.Contains($field)) { throw "Desktop backend DTO field is missing: $field" }
+}
+foreach ($field in $requiredFrontendFields) {
+    if (-not $frontend.Contains($field)) { throw "Desktop TypeScript DTO field is missing: $field" }
+}
+
 Write-Output "Desktop command binding check passed ($($backendCommands.Count) commands)."

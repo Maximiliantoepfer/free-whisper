@@ -19,6 +19,12 @@
     type WindowsIntegrationSettings
   } from './lib/api/desktop';
   import { labelForState } from './lib/status';
+  import {
+    acceptsStateEvent,
+    isTerminalState,
+    pttActionAfterPreparation,
+    type DeferredPttAction
+  } from './lib/recording-lifecycle';
   import { workspaceShellFor } from './lib/workspace-shell';
 
   type Page = 'home' | 'models' | 'history' | 'lexicon' | 'providers' | 'settings';
@@ -41,6 +47,11 @@
   let busyAction: string | null = null;
   let downloads = new Map<string, DownloadProgress>();
   let statusTimer: number | undefined;
+  let latestStateSequence = 0;
+  let startPromise: Promise<void> | null = null;
+  let stopPromise: Promise<void> | null = null;
+  let pttReleasedDuringPreparation = false;
+  let pttCancelledDuringPreparation = false;
   let settings: RecordingSettings = {
     deviceId: null,
     mode: 'toggle',
@@ -71,7 +82,7 @@
 
   $: workspaceShell = workspaceShellFor(snapshot?.onboarding);
   $: currentRecording = snapshot?.recording ?? null;
-  $: isWorking = Boolean(snapshot?.processing || currentRecording !== null || busyAction !== null);
+  $: isWorking = Boolean(snapshot?.processing || snapshot?.capturePhase !== 'idle' || busyAction !== null);
   $: hotkeyLabel = [
     windowsSettings.hotkey.control ? 'Ctrl' : '',
     windowsSettings.hotkey.alt ? 'Alt' : '',
@@ -87,13 +98,15 @@
       downloads = new Map(downloads).set(progress.modelId, progress);
     }).then((unlisten) => unlisteners.push(unlisten));
     void onStateChange((event) => {
-      if (event.apiVersion !== 1) return;
+      if (event.apiVersion !== 1 || !acceptsStateEvent(latestStateSequence, event.sequence)) return;
+      latestStateSequence = event.sequence;
       state = event.state;
       if (event.detail) errorMessage = event.detail;
       if (event.state === 'recording') beginStatusPolling();
-      if (event.state === 'failed' || event.state === 'awaiting_injection_confirmation' || event.state === 'completed') {
+      if (isTerminalState(event.state)) {
         stopStatusPolling();
       }
+      void refresh(false);
     }).then((unlisten) => unlisteners.push(unlisten));
     void onPlatformError((event) => {
       if (event.apiVersion === 1) errorMessage = event.message;
@@ -131,7 +144,10 @@
           desktop.remoteProviderWorkspace()
         ]);
       }
-      if (next.activeProvider) state = next.recording ? 'recording' : next.processing ? 'transcribing' : 'idle';
+      if (next.capturePhase === 'preparing') state = 'preparing_recording';
+      else if (next.capturePhase === 'recording') state = 'recording';
+      else if (next.capturePhase === 'finalizing') state = 'finalizing_audio';
+      else if (next.processing) state = 'transcribing';
     } catch (error) {
       errorMessage = desktopError(error).message;
     }
@@ -182,41 +198,77 @@
     finally { busyAction = null; }
   }
 
-  async function beginRecording() {
+  function beginRecording(): Promise<void> {
+    if (startPromise) return startPromise;
+    if (snapshot?.capturePhase && snapshot.capturePhase !== 'idle') return Promise.resolve();
     errorMessage = null;
     notice = null;
     busyAction = 'record';
-    try {
-      const recording = await desktop.startRecording({ settings, language: null });
-      snapshot = snapshot ? { ...snapshot, recording } : snapshot;
-      state = 'recording';
-      beginStatusPolling();
-    } catch (error) { errorMessage = desktopError(error).message; }
-    finally { busyAction = null; }
+    const operation = (async () => {
+      try {
+        const recording = await desktop.startRecording({ settings, language: null });
+        snapshot = snapshot ? { ...snapshot, recording, capturePhase: 'recording' } : snapshot;
+        state = 'recording';
+        beginStatusPolling();
+      } catch (error) {
+        errorMessage = desktopError(error).message;
+      } finally {
+        busyAction = null;
+        startPromise = null;
+        await refresh(false);
+        const action: DeferredPttAction = pttActionAfterPreparation(
+          pttReleasedDuringPreparation,
+          pttCancelledDuringPreparation
+        );
+        pttReleasedDuringPreparation = false;
+        pttCancelledDuringPreparation = false;
+        if (action === 'stop') void finishRecording();
+        if (action === 'cancel' && snapshot?.capturePhase !== 'idle') void cancelCurrent();
+      }
+    })();
+    startPromise = operation;
+    return operation;
   }
 
-  async function finishRecording() {
+  function finishRecording(): Promise<void> {
+    if (stopPromise) return stopPromise;
+    if (startPromise || snapshot?.capturePhase === 'preparing') {
+      pttReleasedDuringPreparation = true;
+      return Promise.resolve();
+    }
+    if (snapshot?.capturePhase !== 'recording') return Promise.resolve();
     errorMessage = null;
     busyAction = 'transcribe';
     stopStatusPolling();
-    try {
-      state = 'finalizing_audio';
-      const transcript = await desktop.stopRecording();
-      result = transcript;
-      state = transcript.injectionOutcome === 'inserted' ? 'completed' : 'awaiting_injection_confirmation';
-      snapshot = snapshot ? { ...snapshot, recording: null, processing: false, lastTranscript: transcript } : snapshot;
-      history = [transcript, ...history.filter((entry) => entry.id !== transcript.id)];
-      notice = transcript.injectionOutcome === 'inserted'
-        ? 'Text wurde nur im unveränderten Zielkontext eingefügt.'
-        : 'Text ist bereit. Er wird erst nach deinem Klick kopiert.';
-    } catch (error) {
-      errorMessage = desktopError(error).message;
-      state = 'failed';
-      await refresh(false);
-    } finally { busyAction = null; }
+    const operation = (async () => {
+      try {
+        state = 'finalizing_audio';
+        const transcript = await desktop.stopRecording();
+        result = transcript;
+        state = transcript.injectionOutcome === 'inserted' ? 'completed' : 'awaiting_injection_confirmation';
+        snapshot = snapshot ? { ...snapshot, recording: null, processing: false, lastTranscript: transcript, capturePhase: 'idle' } : snapshot;
+        history = [transcript, ...history.filter((entry) => entry.id !== transcript.id)];
+        notice = transcript.injectionOutcome === 'inserted'
+          ? 'Text wurde nur im unveränderten Zielkontext eingefügt.'
+          : 'Text ist bereit. Er wird erst nach deinem Klick kopiert.';
+      } catch (error) {
+        errorMessage = desktopError(error).message;
+        state = 'failed';
+      } finally {
+        busyAction = null;
+        stopPromise = null;
+        await refresh(false);
+      }
+    })();
+    stopPromise = operation;
+    return operation;
   }
 
   async function cancelCurrent() {
+    if (stopPromise || snapshot?.capturePhase === 'finalizing') {
+      notice = 'Die Aufnahme wird bereits beendet.';
+      return;
+    }
     try {
       await desktop.cancelCurrentJob();
       stopStatusPolling();
@@ -224,6 +276,30 @@
       notice = 'Aufnahme beziehungsweise Transkription wurde abgebrochen.';
       await refresh(false);
     } catch (error) { errorMessage = desktopError(error).message; }
+  }
+
+  function startPushToTalk(event: PointerEvent) {
+    event.preventDefault();
+    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+    pttReleasedDuringPreparation = false;
+    pttCancelledDuringPreparation = false;
+    void beginRecording();
+  }
+
+  function stopPushToTalk() {
+    if (startPromise || snapshot?.capturePhase === 'preparing') {
+      pttReleasedDuringPreparation = true;
+      return;
+    }
+    void finishRecording();
+  }
+
+  function cancelPushToTalk() {
+    if (startPromise || snapshot?.capturePhase === 'preparing') {
+      pttCancelledDuringPreparation = true;
+      return;
+    }
+    void cancelCurrent();
   }
 
   async function copyResult() {
@@ -652,7 +728,7 @@
       <section class="page home-page" aria-labelledby="home-title">
         <div class="page-heading home-heading"><div><span class="workspace-kicker">AUFNAHME</span><h1 id="home-title">Dein Gespräch.<br />Dein Text.</h1><p>{snapshot.activeProvider?.kind === 'remote' ? 'Du verwendest bewusst deinen eigenen Remote-Worker. Audio wird ausschließlich an den unter Provider geprüften Endpunkt übertragen.' : 'Aufnahme, Verarbeitung und Verlauf bleiben auf diesem Rechner. Das Modell läuft über einen isolierten lokalen Worker.'}</p></div><div class="model-summary"><span>AKTIVER PROVIDER</span><b>{snapshot.activeProvider?.displayName}</b><small>{snapshot.activeProvider?.backend.toUpperCase()} · {snapshot.activeProvider?.modelId}</small></div></div>
         <div class="recording-layout">
-          <section class="record-panel" aria-label="Aufnahme"><div class="record-panel-head"><span class="presence"><span class:recording={currentRecording !== null}></span>{currentRecording ? 'Aufnahme läuft' : snapshot.processing ? 'Transkription läuft' : 'Bereit'}</span><span>{currentRecording ? formatDuration(currentRecording.durationMs) : '0:00'}</span></div><div class="wave" class:wave-live={currentRecording !== null} style={`--level: ${(currentRecording?.peakMilli ?? 0) / 1000}`} aria-label={`Mikrofonpegel ${currentRecording?.peakMilli ?? 0} von 1000`}>{#each Array(22) as _, index}<i style={`--i: ${index}`}></i>{/each}</div><p>{currentRecording ? 'Audio bleibt im begrenzten Arbeitsspeicher.' : 'Starte eine lokale Aufnahme, wenn du bereit bist.'}</p>{#if currentRecording}<button class="record-action stop" disabled={busyAction !== null} on:click={finishRecording}>■ &nbsp; Stop & transkribieren</button><button class="button-link center" on:click={cancelCurrent}>Aufnahme verwerfen</button>{:else}<button class="record-action" disabled={isWorking} on:click={() => settings.mode === 'toggle' && void beginRecording()} on:pointerdown={(event) => { if (settings.mode === 'push_to_talk') { event.preventDefault(); void beginRecording(); } }} on:pointerup={() => settings.mode === 'push_to_talk' && currentRecording && void finishRecording()} on:pointercancel={() => settings.mode === 'push_to_talk' && currentRecording && void cancelCurrent()}>● &nbsp; {settings.mode === 'push_to_talk' ? 'Gedrückt halten' : 'Aufnahme starten'}</button>{/if}</section>
+          <section class="record-panel" aria-label="Aufnahme"><div class="record-panel-head"><span class="presence"><span class:recording={currentRecording !== null}></span>{currentRecording ? 'Aufnahme läuft' : snapshot.processing ? 'Transkription läuft' : snapshot.capturePhase === 'preparing' ? 'Aufnahme wird vorbereitet' : snapshot.capturePhase === 'finalizing' ? 'Aufnahme wird beendet' : 'Bereit'}</span><span>{currentRecording ? formatDuration(currentRecording.durationMs) : '0:00'}</span></div><div class="wave" class:wave-live={currentRecording !== null} style={`--level: ${(currentRecording?.peakMilli ?? 0) / 1000}`} aria-label={`Mikrofonpegel ${currentRecording?.peakMilli ?? 0} von 1000`}>{#each Array(22) as _, index}<i style={`--i: ${index}`}></i>{/each}</div><p>{currentRecording ? 'Audio bleibt im begrenzten Arbeitsspeicher.' : snapshot.capturePhase === 'preparing' ? 'Die lokale Engine und das Mikrofon werden vorbereitet.' : 'Starte eine lokale Aufnahme, wenn du bereit bist.'}</p>{#if currentRecording}<button class="record-action stop" disabled={busyAction !== null} on:click={() => void finishRecording()}>■ &nbsp; Stop & transkribieren</button><button class="button-link center" on:click={() => void cancelCurrent()}>Aufnahme verwerfen</button>{:else}<button class="record-action" disabled={isWorking} on:click={() => settings.mode === 'toggle' && void beginRecording()} on:pointerdown={(event) => settings.mode === 'push_to_talk' && startPushToTalk(event)} on:pointerup={() => settings.mode === 'push_to_talk' && stopPushToTalk()} on:pointercancel={() => settings.mode === 'push_to_talk' && cancelPushToTalk()}>● &nbsp; {settings.mode === 'push_to_talk' ? 'Gedrückt halten' : 'Aufnahme starten'}</button>{/if}</section>
           <section class="capture-settings" aria-labelledby="capture-settings-title"><h2 id="capture-settings-title">Aufnahmeprofil</h2><label><span>Mikrofon</span><select bind:value={settings.deviceId} disabled={currentRecording !== null}><option value={null}>Systemstandard</option>{#each snapshot.inputDevices as device}<option value={device.id}>{device.name} · {device.sampleRateHz / 1000} kHz</option>{/each}</select></label>{#if snapshot.microphoneError}<p class="field-error">{snapshot.microphoneError}</p>{/if}<fieldset disabled={currentRecording !== null}><legend>Modus</legend><label><input type="radio" bind:group={settings.mode} value="toggle" /> Umschalten</label><label><input type="radio" bind:group={settings.mode} value="push_to_talk" /> Push-to-talk</label></fieldset><label><span>Maximale Aufnahmezeit</span><input type="number" min="15" max="600" step="1" bind:value={settings.maxDurationSeconds} disabled={currentRecording !== null} /><small>15–600 Sekunden, Standard 180 Sekunden.</small></label><label class="checkbox"><input type="checkbox" bind:checked={settings.vad.enabled} /> Stille per VAD erkennen</label><p class="muted">30 ms Frames · Aggressivität {settings.vad.aggressiveness} · mindestens {settings.vad.minimumSpeechMs} ms Sprache.</p></section>
         </div>
         {#if result}<section class="result-panel" aria-labelledby="result-title"><div class="result-heading"><div><span class="workspace-kicker">LETZTES ERGEBNIS</span><h2 id="result-title">Bereit zur Übergabe</h2></div><span class="pill">{outcomeLabel()}</span></div><p class="result-text">{result.finalText}</p><div class="button-row"><button class="button button-primary" disabled={busyAction === 'copy'} on:click={copyResult}>{busyAction === 'copy' ? 'Kopiert …' : 'Text kopieren'}</button>{#if result.canPasteToOriginal && result.injectionOutcome !== 'inserted'}<button class="button button-secondary" disabled={busyAction === 'paste'} on:click={pasteOriginal}>{busyAction === 'paste' ? 'Prüft Ziel …' : 'Im Originalfenster einfügen'}</button>{/if}<button class="button-link" on:click={() => (result = null)}>Schließen</button></div>{#if result.corrections.length > 0}<div class="corrections"><b>Nachkorrekturen</b>{#each result.corrections as correction}<span class:reverted={correction.reverted}><s>{correction.original}</s> → {correction.replacement}{#if correction.reverted}<small>zurückgenommen</small>{:else}<button class="button-link" disabled={busyAction === 'correction-' + correction.id} on:click={() => void revertCorrection(result?.id ?? '', correction.id)}>Rückgängig</button>{/if}</span>{/each}</div>{/if}<details><summary>Rohtext, Laufzeiten und Warnungen</summary><p class="raw-text">{result.rawText}</p><div class="timings"><span>Audio {formatDuration(result.audioDurationMs)}</span><span>Laden {formatDuration(result.modelLoadMs)}</span><span>Inferenz {formatDuration(result.inferenceMs)}</span><span>Korrektur {formatDuration(result.correctionMs)}</span></div>{#if result.warnings.length > 0}<ul>{#each result.warnings as warning}<li>{warning}</li>{/each}</ul>{/if}</details></section>{/if}

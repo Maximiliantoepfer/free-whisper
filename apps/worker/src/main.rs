@@ -2,7 +2,9 @@
 
 use std::{net::SocketAddr, path::PathBuf, process::ExitCode, time::Duration};
 
-use free_whisper_protocol::ExecutionBackendV1;
+use free_whisper_protocol::{
+    API_VERSION, ExecutionBackendV1, LOCAL_WORKER_ADAPTER_ID, LOCAL_WORKER_BUILD_INFO_PREFIX,
+};
 use free_whisper_worker::{WhisperCppEngine, WhisperCppEngineConfig, WorkerState, serve};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -21,7 +23,15 @@ async fn main() -> ExitCode {
 }
 
 async fn run() -> Result<(), String> {
-    let config = CliConfig::parse(std::env::args().skip(1).collect())?;
+    let arguments = std::env::args().skip(1).collect::<Vec<_>>();
+    if arguments.as_slice() == ["--build-info"] {
+        println!(
+            "{LOCAL_WORKER_BUILD_INFO_PREFIX}|{}|{API_VERSION}|{LOCAL_WORKER_ADAPTER_ID}",
+            env!("CARGO_PKG_VERSION")
+        );
+        return Ok(());
+    }
+    let config = CliConfig::parse(arguments)?;
     let token = read_token_from_stdin().await?;
     let engine = WhisperCppEngine::new(WhisperCppEngineConfig {
         executable: config.whisper_server,
@@ -156,5 +166,5 @@ async fn read_token_from_stdin() -> Result<String, String> {
 }
 
 fn usage() -> String {
-    "usage: free-whisper-worker --token-stdin --whisper-server PATH --model PATH --model-id ID [--bind 127.0.0.1:PORT] [--backend cpu]".to_owned()
+    "usage: free-whisper-worker --build-info | --token-stdin --whisper-server PATH --model PATH --model-id ID [--bind 127.0.0.1:PORT] [--backend cpu]".to_owned()
 }

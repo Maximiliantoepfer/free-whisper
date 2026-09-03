@@ -72,9 +72,9 @@ pnpm ui:test
 pnpm licenses:check
 ```
 
-`pnpm tauri:build` creates the Windows x64 NSIS installer after the same
-sidecar preparation. Use Node.js **22.12.0** exactly; `.node-version` and CI
-enforce that version.
+`pnpm tauri:build` creates the Windows x64 NSIS installer and always rebuilds
+and verifies the CPU sidecars first. Use Node.js **22.12.0** exactly;
+`.node-version` and CI enforce that version.
 
 For an interactive development window, run:
 
@@ -87,9 +87,14 @@ manager without an administrator-installed shim:
 
 ```powershell
 corepack pnpm install --frozen-lockfile
-.\scripts\prepare-sidecars.ps1
 corepack pnpm tauri:dev
 ```
+
+`tauri:dev` and `tauri:build` run sidecar preparation automatically. A direct
+Tauri invocation performs only a preflight and fails with the root command to
+run if the generated worker is missing or stale. The worker reports a token-free
+build identity, so an old executable cannot silently use a previous engine
+adapter.
 
 Run `./scripts/provision-alpha-manifest.ps1` only when changing the Alpha
 catalogue. A real local transcription needs an explicitly installed model and
@@ -100,17 +105,11 @@ a working microphone.
 
 ```bash
 pnpm install --frozen-lockfile
-./scripts/prepare-sidecars.ps1
 pnpm tauri:dev
 ```
 
 ```bash
 corepack pnpm --version
 corepack pnpm install --frozen-lockfile
-.\scripts\prepare-sidecars.ps1
-corepack pnpm --dir apps/desktop run tauri:dev
-```
-
-```bash
 corepack pnpm tauri:dev
 ```

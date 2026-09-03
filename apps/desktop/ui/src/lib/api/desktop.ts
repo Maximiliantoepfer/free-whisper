@@ -16,6 +16,8 @@ export type AppState =
   | 'failed'
   | 'cancelling';
 
+export type CapturePhase = 'idle' | 'preparing' | 'recording' | 'finalizing';
+
 export interface DesktopError {
   code: string;
   message: string;
@@ -149,6 +151,8 @@ export interface RuntimeSnapshot {
   windowsIntegration: WindowsIntegrationSettings;
   windowsIntegrationError: string | null;
   hotkeyError: string | null;
+  capturePhase: CapturePhase;
+  activeJobId: string | null;
   recording: RecordingStatus | null;
   processing: boolean;
   queueDepth: number;
@@ -264,6 +268,7 @@ export interface DownloadProgress {
 
 export interface StateChange {
   apiVersion: 1;
+  sequence: number;
   jobId: string;
   state: AppState;
   detail: string | null;

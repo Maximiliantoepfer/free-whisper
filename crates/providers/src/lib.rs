@@ -17,8 +17,9 @@ use free_whisper_domain::{
     TranscriptionResult,
 };
 use free_whisper_protocol::{
-    ApiErrorCodeV1, ApiErrorResponseV1, CapabilitiesResponseV1, LanguageRequestV1,
-    ModelsResponseV1, TranscriptionOptionsV1, TranscriptionResponseV1, VersionedResponse,
+    API_VERSION, ApiErrorCodeV1, ApiErrorResponseV1, CapabilitiesResponseV1,
+    LOCAL_WORKER_ADAPTER_ID, LOCAL_WORKER_BUILD_INFO_PREFIX, LanguageRequestV1, ModelsResponseV1,
+    TranscriptionOptionsV1, TranscriptionResponseV1, VersionedResponse,
 };
 use reqwest::{StatusCode, header};
 use thiserror::Error;
@@ -60,6 +61,8 @@ pub enum ProviderError {
     Rejected(String),
     #[error("provider protocol error: {0}")]
     Protocol(String),
+    #[error("the packaged local worker is outdated or incompatible")]
+    SidecarOutdated,
 }
 
 #[async_trait]
@@ -298,6 +301,9 @@ pub struct LocalSidecarConfig {
     pub model_id: ModelId,
     pub backend: ExecutionBackend,
     pub startup_timeout: Duration,
+    /// Desktop and worker must originate from the same workspace package
+    /// version so a stale generated sidecar cannot silently run old code.
+    pub expected_worker_version: String,
 }
 
 #[derive(Debug)]
@@ -363,6 +369,7 @@ impl LocalWhisperCppProvider {
                     .to_owned(),
             ));
         }
+        self.verify_worker_build_info().await?;
         let token = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
         let mut child = Command::new(&self.config.worker_executable)
             .arg("--token-stdin")
@@ -456,6 +463,28 @@ impl LocalWhisperCppProvider {
         Ok(None)
     }
 
+    async fn verify_worker_build_info(&self) -> Result<(), ProviderError> {
+        let output = tokio::time::timeout(
+            Duration::from_secs(3),
+            Command::new(&self.config.worker_executable)
+                .arg("--build-info")
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .kill_on_drop(true)
+                .output(),
+        )
+        .await
+        .map_err(|_| ProviderError::SidecarOutdated)?
+        .map_err(|_| ProviderError::SidecarOutdated)?;
+        if !output.status.success() {
+            return Err(ProviderError::SidecarOutdated);
+        }
+        let output =
+            std::str::from_utf8(&output.stdout).map_err(|_| ProviderError::SidecarOutdated)?;
+        parse_worker_build_info(output, &self.config.expected_worker_version)
+    }
+
     async fn refresh_local_capabilities(
         &self,
         provider: &RemoteWorkerProvider,
@@ -466,6 +495,23 @@ impl LocalWhisperCppProvider {
         })? = capabilities;
         Ok(())
     }
+}
+
+fn parse_worker_build_info(output: &str, expected_version: &str) -> Result<(), ProviderError> {
+    let mut fields = output.trim().split('|');
+    let prefix = fields.next();
+    let version = fields.next();
+    let api_version = fields.next();
+    let adapter = fields.next();
+    if fields.next().is_some()
+        || prefix != Some(LOCAL_WORKER_BUILD_INFO_PREFIX)
+        || version != Some(expected_version)
+        || api_version.and_then(|value| value.parse::<u16>().ok()) != Some(API_VERSION)
+        || adapter != Some(LOCAL_WORKER_ADAPTER_ID)
+    {
+        return Err(ProviderError::SidecarOutdated);
+    }
+    Ok(())
 }
 
 async fn read_bound_address(
@@ -946,6 +992,29 @@ mod tests {
         );
 
         assert!(matches!(error, ProviderError::Protocol(_)));
+    }
+
+    #[test]
+    fn local_sidecar_build_info_requires_matching_version_api_and_adapter() {
+        let expected = "2.0.0-alpha.2";
+        let valid = format!(
+            "{LOCAL_WORKER_BUILD_INFO_PREFIX}|{expected}|{API_VERSION}|{LOCAL_WORKER_ADAPTER_ID}\n"
+        );
+        assert!(parse_worker_build_info(&valid, expected).is_ok());
+        assert!(matches!(
+            parse_worker_build_info(
+                "free-whisper-worker|2.0.0-alpha.1|1|whispercpp-v1.8.6-verbose-json-start-end",
+                expected,
+            ),
+            Err(ProviderError::SidecarOutdated)
+        ));
+        assert!(matches!(
+            parse_worker_build_info(
+                "free-whisper-worker|2.0.0-alpha.2|1|whispercpp-v1.8.6-verbose-json-t0-t1",
+                expected,
+            ),
+            Err(ProviderError::SidecarOutdated)
+        ));
     }
 
     #[tokio::test]

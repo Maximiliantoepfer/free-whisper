@@ -1,11 +1,11 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "free-whisper",
-  "version": "2.0.0-alpha.1",
+  "version": "2.0.0-alpha.2",
   "identifier": "io.github.maximiliantoepfer.free-whisper",
   "build": {
-    "beforeDevCommand": "corepack pnpm --dir ui dev",
-    "beforeBuildCommand": "corepack pnpm --dir ui build",
+    "beforeDevCommand": "powershell -NoProfile -ExecutionPolicy Bypass -File ../../scripts/verify-sidecars.ps1 && corepack pnpm --dir ui dev",
+    "beforeBuildCommand": "powershell -NoProfile -ExecutionPolicy Bypass -File ../../scripts/verify-sidecars.ps1 && corepack pnpm --dir ui build",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../ui/dist"
   },

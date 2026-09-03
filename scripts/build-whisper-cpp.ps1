@@ -21,14 +21,20 @@ if (-not (Test-Path -LiteralPath (Join-Path $source '.git'))) {
     throw "whisper.cpp submodule is missing: $source"
 }
 
-$commit = (& git -C $source rev-parse HEAD).Trim()
+# The submodule can be owned by a different local Windows account than the
+# terminal process (for example a sandboxed CI runner). Scope the trust
+# exception to this read-only pin check instead of modifying global Git config.
+$gitSafeSource = $source.Replace('\', '/')
+$commit = (& git -c "safe.directory=$gitSafeSource" -C $source rev-parse HEAD).Trim()
 if ($commit -ne '23ee03506a91ac3d3f0071b40e66a430eebdfa1d') {
     throw "whisper.cpp must be pinned to 23ee035; found $commit"
 }
 
-# whisper-server is declared by examples/server in v1.8.6.  Building the
-# target below produces only that executable; FFmpeg support remains disabled.
-& $cmake -S $source -B $build -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON -DWHISPER_BUILD_SERVER=ON -DWHISPER_COMMON_FFMPEG=OFF
+# whisper-server is declared by examples/server in v1.8.6. Building the target
+# below produces only that executable; FFmpeg support remains disabled. CMake
+# asks the vendored source for its Git revision, so pass the same one-process
+# safe-directory exception without changing a developer's global Git config.
+& $cmake -E env "GIT_CONFIG_COUNT=1" "GIT_CONFIG_KEY_0=safe.directory" "GIT_CONFIG_VALUE_0=$gitSafeSource" $cmake -S $source -B $build -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON -DWHISPER_BUILD_SERVER=ON -DWHISPER_COMMON_FFMPEG=OFF
 & $cmake --build $build --config Release --target whisper-server
 
 $server = Get-ChildItem -LiteralPath $build -Recurse -File -Filter 'whisper-server.exe' |

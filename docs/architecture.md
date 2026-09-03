@@ -65,6 +65,11 @@ the same snapshot controls both prompt hints and conservative exact-variant
 post-correction. The UI cannot introduce fuzzy or regular-expression rules.
 
 The desktop starts a packaged `free-whisper-worker` sidecar on `127.0.0.1:0`.
+Before it sends a token or starts the sidecar, it executes the worker's
+token-free `--build-info` preflight. The version, protocol and pinned
+`whispercpp-v1.8.6-verbose-json-start-end` adapter must match the desktop
+build; stale generated binaries fail visibly instead of decoding inference
+responses with an old contract.
 The worker prints exactly one token-free ready line containing its actual
 loopback address, so the desktop no longer reserves and races a port. Its
 inner whisper.cpp adapter requests `verbose_json`, maps returned segments and

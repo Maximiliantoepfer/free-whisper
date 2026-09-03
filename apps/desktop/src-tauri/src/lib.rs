@@ -881,7 +881,6 @@ fn take_active_for_finalization(
         .recording
         .lock()
         .map_err(|_| DesktopCommandError::new("internal", "recording state is unavailable"))?
-        .take()
         .take();
     let Some(active) = active else {
         let _ = coordinator.release_finalization(job_id);
@@ -2614,6 +2613,7 @@ fn local_provider(
             model_id: model.model_id.clone(),
             backend: ExecutionBackend::Cpu,
             startup_timeout: Duration::from_secs(30),
+            expected_worker_version: app_version().to_owned(),
         }),
     ))))
 }
@@ -3485,16 +3485,26 @@ fn audio_error(error: AudioError) -> DesktopCommandError {
 }
 
 fn provider_error(error: ProviderError) -> DesktopCommandError {
-    let code = match error {
-        ProviderError::ModelNotReady(_) => "model_not_ready",
-        ProviderError::Cancelled(_) => "transcription_cancelled",
-        ProviderError::Unavailable(_) => "provider_unavailable",
-        ProviderError::Protocol(_) => "provider_protocol",
+    let (code, message) = match &error {
+        ProviderError::ModelNotReady(_) => ("model_not_ready", error.to_string()),
+        ProviderError::Cancelled(_) => ("transcription_cancelled", error.to_string()),
+        ProviderError::Unavailable(_) => ("provider_unavailable", error.to_string()),
+        ProviderError::SidecarOutdated => (
+            "sidecar_outdated",
+            "Die lokale Transkriptions-Engine passt nicht zu dieser App-Version. Starte die App über den Root-Schnellstart neu oder installiere den aktuellen Alpha.2-Installer.".to_owned(),
+        ),
+        ProviderError::Protocol(_) => {
+            eprintln!("free-whisper diagnostic: local provider protocol failure: {error}");
+            (
+                "engine_protocol",
+                "Die lokale Transkriptions-Engine antwortet nicht im erwarteten Format. Starte die App neu; bei erneutem Fehler exportiere eine Diagnose ohne Audio oder Text.".to_owned(),
+            )
+        }
         ProviderError::Rejected(_)
         | ProviderError::Unauthorized
-        | ProviderError::InsecureEndpoint(_) => "transcription_failed",
+        | ProviderError::InsecureEndpoint(_) => ("transcription_failed", error.to_string()),
     };
-    DesktopCommandError::new(code, error.to_string())
+    DesktopCommandError::new(code, message)
 }
 
 fn model_manager_error(error: ModelManagerError) -> DesktopCommandError {
@@ -3623,6 +3633,19 @@ mod tests {
         assert_eq!(error.code, "model_storage_failed");
         assert!(error.message.contains("Modellordner"));
         assert!(!error.message.contains("private-model-root"));
+    }
+
+    #[test]
+    fn stale_sidecar_and_engine_protocol_failures_are_actionable_without_raw_details() {
+        let stale = provider_error(ProviderError::SidecarOutdated);
+        assert_eq!(stale.code, "sidecar_outdated");
+        assert!(stale.message.contains("Alpha.2-Installer"));
+
+        let protocol = provider_error(ProviderError::Protocol(
+            "private inner transcript must not reach the UI".to_owned(),
+        ));
+        assert_eq!(protocol.code, "engine_protocol");
+        assert!(!protocol.message.contains("private inner transcript"));
     }
 
     #[test]

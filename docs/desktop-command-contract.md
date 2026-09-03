@@ -43,7 +43,9 @@ future incompatible version is received.
 
 - `desktop.v1.model-download-progress`: model ID, received/total bytes,
   throughput and optional remaining seconds.
-- `desktop.v1.state`: job UUID, typed domain state and optional visible detail.
+- `desktop.v1.state`: monotone event sequence, job UUID, typed domain state
+  and optional visible detail. The UI ignores a lower or duplicate sequence
+  number and refreshes the backend snapshot after terminal states.
 - `desktop.v1.platform-error`: Windows hotkey, target-window, tray, clipboard
   restore or shutdown error that requires visible UI feedback.
 

@@ -16,6 +16,26 @@ use uuid::Uuid;
 const TOKEN: &str = "process-contract-token-1234";
 
 #[tokio::test]
+async fn worker_build_info_is_token_free_and_identifies_the_pinned_adapter() {
+    let output = Command::new(worker_binary())
+        .arg("--build-info")
+        .output()
+        .await
+        .expect("worker build information");
+
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8(output.stdout)
+            .expect("UTF-8 build information")
+            .trim(),
+        format!(
+            "free-whisper-worker|{}|{API_VERSION}|whispercpp-v1.8.6-verbose-json-start-end",
+            env!("CARGO_PKG_VERSION")
+        )
+    );
+}
+
+#[tokio::test]
 async fn managed_worker_process_reports_readiness_enforces_busy_and_restarts_after_cancel() {
     let directory = tempfile::tempdir().expect("temporary model directory");
     let model = directory.path().join("test-model.bin");
