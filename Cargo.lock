@@ -1195,7 +1195,7 @@ dependencies = [
 
 [[package]]
 name = "free-whisper-application"
-version = "2.0.0-alpha.2"
+version = "2.0.0-alpha.3"
 dependencies = [
  "free-whisper-domain",
  "thiserror 2.0.20",
@@ -1203,7 +1203,7 @@ dependencies = [
 
 [[package]]
 name = "free-whisper-audio"
-version = "2.0.0-alpha.2"
+version = "2.0.0-alpha.3"
 dependencies = [
  "cpal",
  "free-whisper-domain",
@@ -1215,7 +1215,7 @@ dependencies = [
 
 [[package]]
 name = "free-whisper-desktop"
-version = "2.0.0-alpha.2"
+version = "2.0.0-alpha.3"
 dependencies = [
  "free-whisper-application",
  "free-whisper-audio",
@@ -1237,7 +1237,7 @@ dependencies = [
 
 [[package]]
 name = "free-whisper-domain"
-version = "2.0.0-alpha.2"
+version = "2.0.0-alpha.3"
 dependencies = [
  "serde",
  "thiserror 2.0.20",
@@ -1247,7 +1247,7 @@ dependencies = [
 
 [[package]]
 name = "free-whisper-lexicon"
-version = "2.0.0-alpha.2"
+version = "2.0.0-alpha.3"
 dependencies = [
  "caseless",
  "free-whisper-domain",
@@ -1260,7 +1260,7 @@ dependencies = [
 
 [[package]]
 name = "free-whisper-model-manager"
-version = "2.0.0-alpha.2"
+version = "2.0.0-alpha.3"
 dependencies = [
  "base64 0.22.1",
  "ed25519-dalek",
@@ -1281,7 +1281,7 @@ dependencies = [
 
 [[package]]
 name = "free-whisper-platform-windows"
-version = "2.0.0-alpha.2"
+version = "2.0.0-alpha.3"
 dependencies = [
  "arboard",
  "free-whisper-domain",
@@ -1292,7 +1292,7 @@ dependencies = [
 
 [[package]]
 name = "free-whisper-protocol"
-version = "2.0.0-alpha.2"
+version = "2.0.0-alpha.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -1301,7 +1301,7 @@ dependencies = [
 
 [[package]]
 name = "free-whisper-providers"
-version = "2.0.0-alpha.2"
+version = "2.0.0-alpha.3"
 dependencies = [
  "async-trait",
  "free-whisper-domain",
@@ -1318,7 +1318,7 @@ dependencies = [
 
 [[package]]
 name = "free-whisper-storage"
-version = "2.0.0-alpha.2"
+version = "2.0.0-alpha.3"
 dependencies = [
  "csv",
  "free-whisper-domain",
@@ -1334,7 +1334,7 @@ dependencies = [
 
 [[package]]
 name = "free-whisper-test-support"
-version = "2.0.0-alpha.2"
+version = "2.0.0-alpha.3"
 dependencies = [
  "async-trait",
  "free-whisper-domain",
@@ -1343,7 +1343,7 @@ dependencies = [
 
 [[package]]
 name = "free-whisper-worker"
-version = "2.0.0-alpha.2"
+version = "2.0.0-alpha.3"
 dependencies = [
  "async-trait",
  "axum",

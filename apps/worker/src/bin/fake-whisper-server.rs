@@ -8,6 +8,7 @@ use std::{net::SocketAddr, process::ExitCode, time::Duration};
 
 use axum::{
     Json, Router,
+    extract::Multipart,
     http::StatusCode,
     routing::{get, post},
 };
@@ -49,14 +50,48 @@ async fn run() -> Result<(), String> {
     }
 }
 
-async fn inference() -> Json<serde_json::Value> {
+async fn inference(
+    mut multipart: Multipart,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    let mut language = None;
+    let mut translate = None;
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|_| (StatusCode::BAD_REQUEST, "malformed multipart"))?
+    {
+        match field.name().unwrap_or_default() {
+            "language" => {
+                language = Some(
+                    field
+                        .text()
+                        .await
+                        .map_err(|_| (StatusCode::BAD_REQUEST, "invalid language field"))?,
+                );
+            }
+            "translate" => {
+                translate = Some(
+                    field
+                        .text()
+                        .await
+                        .map_err(|_| (StatusCode::BAD_REQUEST, "invalid translate field"))?,
+                );
+            }
+            _ => {}
+        }
+    }
+    // This fixture enforces the pinned contract on the actual inner HTTP
+    // request. Without these fields whisper.cpp would fall back to English.
+    if language.as_deref() != Some("auto") || translate.as_deref() != Some("false") {
+        return Err((StatusCode::BAD_REQUEST, "missing transcription controls"));
+    }
     // Leaves enough time for the outer worker's busy and cancellation paths.
     tokio::time::sleep(Duration::from_millis(500)).await;
-    Json(json!({
+    Ok(Json(json!({
         "text": "prozess-test",
         "language": "german",
         "detected_language": "german",
         "detected_language_probability": 0.998,
         "segments": [{ "id": 0, "text": "prozess-test", "start": 0.0, "end": 0.5 }]
-    }))
+    })))
 }

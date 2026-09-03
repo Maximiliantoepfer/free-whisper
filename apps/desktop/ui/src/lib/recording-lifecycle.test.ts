@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   acceptsStateEvent,
   isTerminalState,
+  noSpeechNotice,
   pttActionAfterPreparation
 } from './recording-lifecycle';
 
@@ -24,5 +25,9 @@ describe('recording UI lifecycle', () => {
     expect(isTerminalState('completed')).toBe(true);
     expect(isTerminalState('awaiting_injection_confirmation')).toBe(true);
     expect(isTerminalState('finalizing_audio')).toBe(false);
+  });
+
+  it('presents a short or silent capture as a neutral no-op', () => {
+    expect(noSpeechNotice()).toBe('Keine Sprache aufgenommen – es wurde nichts transkribiert.');
   });
 });

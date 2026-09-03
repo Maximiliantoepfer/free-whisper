@@ -32,7 +32,7 @@ use windows_sys::Win32::{
         Input::KeyboardAndMouse::{
             INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, MOD_ALT, MOD_CONTROL,
             MOD_NOREPEAT, MOD_SHIFT, RegisterHotKey, SendInput, UnregisterHotKey, VK_CONTROL,
-            VK_SPACE, VK_V,
+            VK_V,
         },
         WindowsAndMessaging::{
             GetForegroundWindow, GetMessageW, GetWindowTextLengthW, GetWindowTextW,
@@ -48,8 +48,6 @@ use crate::{
     SecretStore, SecretStoreError, WindowError, evaluate_paste_policy,
     validate_credential_reference, validate_credential_secret,
 };
-
-const HOTKEY_ID: i32 = 0x4657;
 
 /// Explicit clipboard writer. It only writes when the caller asks it to.
 #[derive(Debug, Default)]
@@ -195,6 +193,7 @@ impl SecretStore for WindowsCredentialStore {
 /// Owns the isolated WM_HOTKEY loop and always unregisters before shutdown.
 pub struct GlobalHotkey {
     thread_id: u32,
+    registration_id: i32,
     join_handle: Mutex<Option<JoinHandle<()>>>,
 }
 
@@ -202,20 +201,27 @@ impl GlobalHotkey {
     pub fn start(
         binding: HotkeyBinding,
         events: mpsc::Sender<HotkeyEvent>,
+        registration_id: i32,
     ) -> Result<Self, HotkeyError> {
         binding.validate()?;
         let (started_tx, started_rx) = mpsc::sync_channel(1);
         let join_handle = thread::Builder::new()
             .name("free-whisper-hotkey".to_owned())
-            .spawn(move || hotkey_message_loop(binding, events, started_tx))
+            .spawn(move || hotkey_message_loop(binding, events, registration_id, started_tx))
             .map_err(|error| HotkeyError::StartupFailed(error.to_string()))?;
         let thread_id = started_rx
             .recv_timeout(Duration::from_secs(2))
             .map_err(|error| HotkeyError::StartupFailed(error.to_string()))??;
         Ok(Self {
             thread_id,
+            registration_id,
             join_handle: Mutex::new(Some(join_handle)),
         })
+    }
+
+    #[must_use]
+    pub const fn registration_id(&self) -> i32 {
+        self.registration_id
     }
 
     pub fn shutdown(&self) {
@@ -292,6 +298,7 @@ pub enum PasteRefusalOrError {
 fn hotkey_message_loop(
     binding: HotkeyBinding,
     events: mpsc::Sender<HotkeyEvent>,
+    registration_id: i32,
     started: mpsc::SyncSender<Result<u32, HotkeyError>>,
 ) {
     // SAFETY: a zeroed MSG is valid initial storage; PeekMessageW creates this
@@ -305,9 +312,9 @@ fn hotkey_message_loop(
     let registered = unsafe {
         RegisterHotKey(
             std::ptr::null_mut(),
-            HOTKEY_ID,
+            registration_id,
             hotkey_modifiers(&binding),
-            VK_SPACE as u32,
+            binding.virtual_key(),
         )
     };
     if registered == 0 {
@@ -319,7 +326,7 @@ fn hotkey_message_loop(
     if started.send(Ok(thread_id)).is_err() {
         // SAFETY: balances the successful registration above.
         unsafe {
-            let _ = UnregisterHotKey(std::ptr::null_mut(), HOTKEY_ID);
+            let _ = UnregisterHotKey(std::ptr::null_mut(), registration_id);
         }
         return;
     }
@@ -331,7 +338,7 @@ fn hotkey_message_loop(
             break;
         }
         if message.message == WM_HOTKEY
-            && message.wParam == HOTKEY_ID as usize
+            && message.wParam == registration_id as usize
             && events.send(HotkeyEvent::Pressed).is_err()
         {
             break;
@@ -339,7 +346,7 @@ fn hotkey_message_loop(
     }
     // SAFETY: balances successful RegisterHotKey on all loop exits.
     unsafe {
-        let _ = UnregisterHotKey(std::ptr::null_mut(), HOTKEY_ID);
+        let _ = UnregisterHotKey(std::ptr::null_mut(), registration_id);
     }
 }
 

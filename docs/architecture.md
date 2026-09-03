@@ -73,9 +73,10 @@ responses with an old contract.
 The worker prints exactly one token-free ready line containing its actual
 loopback address, so the desktop no longer reserves and races a port. Its
 inner whisper.cpp adapter requests `verbose_json`, maps returned segments and
-language when available, and reports measured inference time. It does not
-advertise word timestamps or language detection as guaranteed capabilities
-where the unversioned engine cannot prove them.
+language and reports measured inference time. It does not advertise word
+timestamps. Automatic language detection is advertised only because the
+adapter explicitly forwards `language=auto` to the pinned engine; every
+request also forwards `translate=false`.
 
 ## Vertical-slice recording flow
 
@@ -98,10 +99,11 @@ SQLite or transcript history.
 
 `crates/platform-windows` is the sole Win32 FFI boundary. Its pure policy
 compares HWND, PID and process creation FILETIME before any paste and refuses
-elevated targets. The global `Ctrl+Alt+Leertaste` binding has its own Windows
-message loop with `MOD_NOREPEAT`; registration failures are runtime errors,
-not silent fallbacks. Tray actions, the hotkey and the window controls all use
-the same Rust recording controller functions.
+elevated targets. The global `Ctrl+Leertaste` binding has its own Windows
+message loop with `MOD_NOREPEAT`; F8–F12 and modifiers are configurable.
+Registration failures are runtime errors, not silent fallbacks. Tray actions,
+the hotkey and the window controls all use the same Rust recording controller
+functions.
 
 Copy is the default. When Auto-Paste is explicitly enabled, a transient target
 snapshot is captured at recording start. The text is copied, the original

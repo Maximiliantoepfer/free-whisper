@@ -21,7 +21,8 @@ use free_whisper_domain::{
     AppState, DecodingOptions, ExecutionBackend, InjectionOutcome, JobId, JobStateMachine,
     LanguageSelection, LexiconEntryId, LexiconProfileId, ModelId, ProcessingDurations,
     ProviderProfileId, RequestId, TargetWindowSnapshot, TranscriptCorrectionId, TranscriptId,
-    TranscriptionRequest,
+    TranscriptionRequest, language_display_name, normalize_language_selection,
+    supported_whisper_languages,
 };
 use free_whisper_lexicon::{
     CorrectionRule, LexiconEntry, LexiconEntryDraft, LexiconProfile, LexiconScope, LexiconVariant,
@@ -60,11 +61,15 @@ const EMBEDDED_SIGNATURE: &str = include_str!("../../../../resources/models/mani
 const EMBEDDED_PUBLIC_KEY: &str = include_str!("../../../../resources/models/manifest.public-key");
 const LOCAL_PROVIDER_ID: &str = "local-whisper-cpp";
 const RECORDING_SETTINGS_KEY: &str = "recording.preferences.v1";
-const WINDOWS_INTEGRATION_SETTINGS_KEY: &str = "windows.integration.preferences.v1";
+const TRANSCRIPTION_PREFERENCES_SETTINGS_KEY: &str = "transcription.preferences.v1";
+const WINDOWS_INTEGRATION_SETTINGS_KEY: &str = "windows.integration.preferences.v2";
+const LEGACY_WINDOWS_INTEGRATION_SETTINGS_KEY: &str = "windows.integration.preferences.v1";
 const ACTIVE_LEXICON_PROFILE_SETTINGS_KEY: &str = "lexicon.active_profile.v1";
 const ACTIVE_REMOTE_PROVIDER_SETTINGS_KEY: &str = "remote.active_provider.v1";
 const REMOTE_PROVIDER_ID: &str = "remote-worker";
 const CREDENTIAL_REFERENCE_PREFIX: &str = "free-whisper/provider/";
+const PRIMARY_HOTKEY_ID: i32 = 0x4657;
+const REBIND_HOTKEY_ID: i32 = 0x4658;
 
 struct DesktopState {
     model_root: PathBuf,
@@ -73,8 +78,8 @@ struct DesktopState {
     recorder: AudioRecorder,
     windows: WindowsDesktop,
     credential_store: WindowsCredentialStore,
-    hotkey: Mutex<Option<GlobalHotkey>>,
-    hotkey_error: Mutex<Option<String>>,
+    hotkey: Mutex<Option<ActiveGlobalHotkey>>,
+    hotkey_status: Mutex<HotkeyStatusView>,
     coordinator: Mutex<RecordingCoordinator>,
     recording: Mutex<Option<ActiveRecording>>,
     processing: Mutex<Option<ProcessingJob>>,
@@ -91,6 +96,11 @@ struct ActiveRecording {
     provider: Arc<RecordingProvider>,
     model_load_ms: u64,
     target_window: Option<TargetWindowSnapshot>,
+}
+
+struct ActiveGlobalHotkey {
+    binding: HotkeyBinding,
+    handle: GlobalHotkey,
 }
 
 #[derive(Clone)]
@@ -201,9 +211,12 @@ struct RuntimeSnapshot {
     microphone_error: Option<String>,
     recording_settings: RecordingSettings,
     recording_settings_error: Option<String>,
+    transcription_preferences: TranscriptionPreferences,
+    transcription_preferences_error: Option<String>,
+    supported_languages: Vec<SupportedLanguageView>,
     windows_integration: WindowsIntegrationSettings,
     windows_integration_error: Option<String>,
-    hotkey_error: Option<String>,
+    hotkey_status: HotkeyStatusView,
     capture_phase: CapturePhaseView,
     active_job_id: Option<String>,
     recording: Option<RecordingStatus>,
@@ -278,7 +291,9 @@ struct TranscriptView {
     raw_text: String,
     final_text: String,
     language_requested: Option<String>,
+    language_requested_label: Option<String>,
     language_detected: Option<String>,
+    language_detected_label: Option<String>,
     language_confidence_milli: Option<u16>,
     provider_id: String,
     model_id: String,
@@ -309,15 +324,36 @@ struct CorrectionView {
 #[serde(rename_all = "camelCase")]
 struct StartRecordingInput {
     settings: RecordingSettings,
-    /// `None` is language auto-detection. Explicit language values are copied
-    /// into each job and cannot change during inference.
-    language: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TranscriptionPreferences {
+    /// `auto` or a validated language code from the pinned whisper catalogue.
+    language: String,
+}
+
+impl Default for TranscriptionPreferences {
+    fn default() -> Self {
+        Self {
+            language: "auto".to_owned(),
+        }
+    }
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SupportedLanguageView {
+    code: String,
+    display_name: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct WindowsIntegrationSettings {
     hotkey: HotkeyBinding,
+    #[serde(default)]
+    hotkey_user_selected: bool,
     auto_paste: bool,
     restore_clipboard_after_paste: bool,
 }
@@ -326,10 +362,61 @@ impl Default for WindowsIntegrationSettings {
     fn default() -> Self {
         Self {
             hotkey: HotkeyBinding::default(),
+            hotkey_user_selected: false,
             auto_paste: false,
             restore_clipboard_after_paste: true,
         }
     }
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyWindowsIntegrationSettings {
+    auto_paste: bool,
+    restore_clipboard_after_paste: bool,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum HotkeyRegistrationPhase {
+    Registered,
+    Unavailable,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HotkeyStatusView {
+    phase: HotkeyRegistrationPhase,
+    binding: HotkeyBinding,
+    detail: Option<String>,
+    last_triggered_at: Option<String>,
+}
+
+impl HotkeyStatusView {
+    fn registered(binding: HotkeyBinding) -> Self {
+        Self {
+            phase: HotkeyRegistrationPhase::Registered,
+            binding,
+            detail: None,
+            last_triggered_at: None,
+        }
+    }
+
+    fn unavailable(binding: HotkeyBinding, detail: String) -> Self {
+        Self {
+            phase: HotkeyRegistrationPhase::Unavailable,
+            binding,
+            detail: Some(detail),
+            last_triggered_at: None,
+        }
+    }
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "snake_case", tag = "kind")]
+enum StopRecordingOutcome {
+    Transcript { transcript: TranscriptView },
+    NoSpeech { reason: String },
 }
 
 #[derive(Clone, Serialize)]
@@ -338,6 +425,13 @@ struct PlatformErrorEvent {
     api_version: u16,
     area: &'static str,
     message: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HotkeyStatusEvent {
+    api_version: u16,
+    status: HotkeyStatusView,
 }
 
 #[derive(Clone, Serialize)]
@@ -573,11 +667,13 @@ fn runtime_snapshot(
         Err(error) => (Vec::new(), Some(error.to_string())),
     };
     let (recording_settings, recording_settings_error) = load_recording_settings(&state)?;
+    let (transcription_preferences, transcription_preferences_error) =
+        load_transcription_preferences(&state)?;
     let (windows_integration, windows_integration_error) =
         load_windows_integration_settings(&state)?;
     let active_lexicon_profile_id = load_active_lexicon_profile(&state)?.map(|id| id.to_string());
-    let hotkey_error = state
-        .hotkey_error
+    let hotkey_status = state
+        .hotkey_status
         .lock()
         .map_err(|_| DesktopCommandError::new("internal", "hotkey state is unavailable"))?
         .clone();
@@ -614,9 +710,18 @@ fn runtime_snapshot(
         microphone_error,
         recording_settings,
         recording_settings_error,
+        transcription_preferences,
+        transcription_preferences_error,
+        supported_languages: supported_whisper_languages()
+            .iter()
+            .map(|language| SupportedLanguageView {
+                code: language.code.to_owned(),
+                display_name: language.display_name.to_owned(),
+            })
+            .collect(),
         windows_integration,
         windows_integration_error,
-        hotkey_error,
+        hotkey_status,
         capture_phase: capture_phase.into(),
         active_job_id: capture_phase.job_id().map(|job_id| job_id.to_string()),
         recording,
@@ -944,6 +1049,15 @@ async fn start_recording_inner(
         abandon_capture_preparation(state, job_id);
         return Err(error);
     }
+    let language = match load_transcription_preferences(state)
+        .and_then(|(preferences, _)| selected_language(&preferences))
+    {
+        Ok(value) => value,
+        Err(error) => {
+            abandon_capture_preparation(state, job_id);
+            return Err(error);
+        }
+    };
     let (provider, model_id) = match recording_provider(&app, &state).await {
         Ok(value) => value,
         Err(error) => {
@@ -1000,11 +1114,6 @@ async fn start_recording_inner(
         return Err(failure);
     }
     let status = capture.status();
-    let language = input
-        .language
-        .filter(|language| !language.trim().is_empty() && language != "auto")
-        .map(LanguageSelection::Explicit)
-        .unwrap_or(LanguageSelection::Auto);
     let target_window = match state.windows.capture_target_snapshot() {
         Ok(snapshot) => snapshot,
         Err(error) => {
@@ -1074,7 +1183,7 @@ fn recording_status(
 async fn stop_recording(
     app: AppHandle,
     state: State<'_, DesktopState>,
-) -> Result<TranscriptView, DesktopCommandError> {
+) -> Result<StopRecordingOutcome, DesktopCommandError> {
     stop_recording_inner(&app, &state).await
 }
 
@@ -1082,7 +1191,7 @@ async fn stop_recording(
 async fn stop_recording_inner(
     app: &AppHandle,
     state: &DesktopState,
-) -> Result<TranscriptView, DesktopCommandError> {
+) -> Result<StopRecordingOutcome, DesktopCommandError> {
     let mut active = take_active_for_finalization(state)?;
     if let Err(error) = active.machine.transition(AppState::FinalizingAudio) {
         let _ = release_capture_finalization(state, active.job_id);
@@ -1091,6 +1200,27 @@ async fn stop_recording_inner(
     emit_state(&app, active.job_id, AppState::FinalizingAudio, None);
     let finalized = match active.capture.finish() {
         Ok(value) => value,
+        Err(AudioError::EmptyRecording) => {
+            if let Err(error) = release_capture_finalization(state, active.job_id) {
+                emit_state(
+                    &app,
+                    active.job_id,
+                    AppState::Failed,
+                    Some(error.message.clone()),
+                );
+                return Err(error);
+            }
+            active
+                .machine
+                .transition(AppState::Cancelling)
+                .map_err(state_error)?;
+            emit_state(&app, active.job_id, AppState::Cancelling, None);
+            active.machine.transition(AppState::Idle).map_err(state_error)?;
+            emit_state(&app, active.job_id, AppState::Idle, None);
+            return Ok(StopRecordingOutcome::NoSpeech {
+                reason: "empty_capture".to_owned(),
+            });
+        }
         Err(error) => {
             let release = release_capture_finalization(state, active.job_id);
             let primary = audio_error(error);
@@ -1119,21 +1249,16 @@ async fn stop_recording_inner(
         return Err(failure);
     }
     if !finalized.speech.has_minimum_speech {
-        let failure = shutdown_after_failure(
-            &active.provider,
-            DesktopCommandError::new(
-                "empty_recording",
-                "No speech was detected; nothing was sent to the transcription model.",
-            ),
-        )
-        .await;
-        emit_state(
-            &app,
-            active.job_id,
-            AppState::Failed,
-            Some(failure.message.clone()),
-        );
-        return Err(failure);
+        active
+            .machine
+            .transition(AppState::Cancelling)
+            .map_err(state_error)?;
+        emit_state(&app, active.job_id, AppState::Cancelling, None);
+        active.machine.transition(AppState::Idle).map_err(state_error)?;
+        emit_state(&app, active.job_id, AppState::Idle, None);
+        return Ok(StopRecordingOutcome::NoSpeech {
+            reason: "vad_below_minimum".to_owned(),
+        });
     }
     if let Err(error) = active.machine.transition(AppState::Queued) {
         let failure = shutdown_after_failure(&active.provider, state_error(error)).await;
@@ -1244,6 +1369,7 @@ async fn stop_recording_inner(
             return Err(failure);
         }
     };
+    result.language_detected = normalize_detected_language(result.language_detected.take());
     if let Err(error) = active.machine.transition(AppState::ApplyingCorrections) {
         let failure = release_processing_after_failure(
             &state,
@@ -1420,7 +1546,9 @@ async fn stop_recording_inner(
             None,
         );
     }
-    Ok(transcript_view(stored))
+    Ok(StopRecordingOutcome::Transcript {
+        transcript: transcript_view(stored),
+    })
 }
 
 #[tauri::command]
@@ -2416,6 +2544,73 @@ fn persist_recording_settings(
         .map_err(storage_error)
 }
 
+fn load_transcription_preferences(
+    state: &DesktopState,
+) -> Result<(TranscriptionPreferences, Option<String>), DesktopCommandError> {
+    let stored = state
+        .database
+        .lock()
+        .map_err(|_| DesktopCommandError::new("internal", "settings database is unavailable"))?
+        .settings()
+        .get(TRANSCRIPTION_PREFERENCES_SETTINGS_KEY)
+        .map_err(storage_error)?;
+    match stored {
+        None => Ok((TranscriptionPreferences::default(), None)),
+        Some(value) => match serde_json::from_value::<TranscriptionPreferences>(value) {
+            Ok(preferences) => match selected_language(&preferences) {
+                Ok(_) => Ok((preferences, None)),
+                Err(error) => Ok((TranscriptionPreferences::default(), Some(error.message))),
+            },
+            Err(error) => Ok((
+                TranscriptionPreferences::default(),
+                Some(format!(
+                    "Gespeicherte Spracheinstellungen sind ungültig und wurden nicht verwendet: {error}"
+                )),
+            )),
+        },
+    }
+}
+
+fn selected_language(
+    preferences: &TranscriptionPreferences,
+) -> Result<LanguageSelection, DesktopCommandError> {
+    normalize_language_selection(Some(&preferences.language)).map_err(|_| {
+        DesktopCommandError::new(
+            "unsupported_language",
+            "Die ausgewählte Sprache wird vom verwendeten multilingualen Whisper-Modell nicht unterstützt.",
+        )
+    })
+}
+
+#[tauri::command]
+fn save_transcription_preferences(
+    state: State<'_, DesktopState>,
+    preferences: TranscriptionPreferences,
+) -> Result<(), DesktopCommandError> {
+    let selection = selected_language(&preferences)?;
+    let language = match selection {
+        LanguageSelection::Auto => "auto".to_owned(),
+        LanguageSelection::Explicit(language) => language,
+    };
+    let value = serde_json::to_value(TranscriptionPreferences { language }).map_err(|error| {
+        DesktopCommandError::new(
+            "settings_serialization_failed",
+            format!("Spracheinstellungen konnten nicht gespeichert werden: {error}"),
+        )
+    })?;
+    state
+        .database
+        .lock()
+        .map_err(|_| DesktopCommandError::new("internal", "settings database is unavailable"))?
+        .settings()
+        .set(
+            TRANSCRIPTION_PREFERENCES_SETTINGS_KEY,
+            &value,
+            OffsetDateTime::now_utc(),
+        )
+        .map_err(storage_error)
+}
+
 fn load_active_lexicon_profile(
     state: &DesktopState,
 ) -> Result<Option<LexiconProfileId>, DesktopCommandError> {
@@ -2480,21 +2675,59 @@ fn persist_active_lexicon_profile(
 fn load_windows_integration_settings(
     state: &DesktopState,
 ) -> Result<(WindowsIntegrationSettings, Option<String>), DesktopCommandError> {
-    let stored = state
+    let mut database = state
         .database
         .lock()
-        .map_err(|_| DesktopCommandError::new("internal", "settings database is unavailable"))?
+        .map_err(|_| DesktopCommandError::new("internal", "settings database is unavailable"))?;
+    let stored = database
         .settings()
         .get(WINDOWS_INTEGRATION_SETTINGS_KEY)
         .map_err(storage_error)?;
     match stored {
-        None => Ok((WindowsIntegrationSettings::default(), None)),
+        None => {
+            let legacy = database
+                .settings()
+                .get(LEGACY_WINDOWS_INTEGRATION_SETTINGS_KEY)
+                .map_err(storage_error)?;
+            let Some(legacy) = legacy else {
+                return Ok((WindowsIntegrationSettings::default(), None));
+            };
+            match serde_json::from_value::<LegacyWindowsIntegrationSettings>(legacy) {
+                Ok(legacy) => {
+                    // v1 never offered editable hotkeys. Preserve its paste
+                    // settings but deliberately migrate its old default to the
+                    // current Ctrl+Leertaste default.
+                    let migrated = WindowsIntegrationSettings {
+                        auto_paste: legacy.auto_paste,
+                        restore_clipboard_after_paste: legacy.restore_clipboard_after_paste,
+                        ..WindowsIntegrationSettings::default()
+                    };
+                    let value = serde_json::to_value(&migrated).map_err(|error| {
+                        DesktopCommandError::new(
+                            "settings_serialization_failed",
+                            format!("Windows-Einstellungen konnten nicht migriert werden: {error}"),
+                        )
+                    })?;
+                    database
+                        .settings()
+                        .set(WINDOWS_INTEGRATION_SETTINGS_KEY, &value, OffsetDateTime::now_utc())
+                        .map_err(storage_error)?;
+                    Ok((migrated, None))
+                }
+                Err(error) => Ok((
+                    WindowsIntegrationSettings::default(),
+                    Some(format!(
+                        "Gespeicherte Windows-Einstellungen sind ungültig und wurden nicht verwendet: {error}"
+                    )),
+                )),
+            }
+        }
         Some(value) => match serde_json::from_value(value) {
             Ok(settings) => Ok((settings, None)),
             Err(error) => Ok((
                 WindowsIntegrationSettings::default(),
                 Some(format!(
-                    "Saved Windows integration preferences are invalid and were not used: {error}"
+                    "Gespeicherte Windows-Einstellungen sind ungültig und wurden nicht verwendet: {error}"
                 )),
             )),
         },
@@ -2530,12 +2763,50 @@ fn persist_windows_integration_settings(
 
 #[tauri::command]
 fn save_windows_integration_settings(
+    app: AppHandle,
     state: State<'_, DesktopState>,
-    settings: WindowsIntegrationSettings,
-) -> Result<(), DesktopCommandError> {
-    // Rebinding an in-flight global key is intentionally not silent. Persisting
-    // the chosen shortcut is safe; a restart registers it before recording.
+    mut settings: WindowsIntegrationSettings,
+) -> Result<HotkeyStatusView, DesktopCommandError> {
+    settings.hotkey_user_selected = true;
+    let status = register_global_hotkey(&app, settings.hotkey.clone())?;
     persist_windows_integration_settings(&state, &settings)
+        .map(|()| status)
+}
+
+#[tauri::command]
+fn reregister_global_hotkey(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+) -> Result<HotkeyStatusView, DesktopCommandError> {
+    let (settings, _) = load_windows_integration_settings(&state)?;
+    let active = state
+        .hotkey
+        .lock()
+        .map_err(|_| DesktopCommandError::new("internal", "hotkey state is unavailable"))?
+        .take();
+    let Some(active) = active else {
+        return register_global_hotkey(&app, settings.hotkey);
+    };
+    let binding = active.binding.clone();
+    active.handle.shutdown();
+    match spawn_global_hotkey(&app, binding.clone(), PRIMARY_HOTKEY_ID) {
+        Ok(next) => {
+            *state
+                .hotkey
+                .lock()
+                .map_err(|_| DesktopCommandError::new("internal", "hotkey state is unavailable"))? = Some(next);
+            let status = HotkeyStatusView::registered(binding);
+            set_hotkey_status(&app, status.clone());
+            Ok(status)
+        }
+        Err(error) => {
+            set_hotkey_status(
+                &app,
+                HotkeyStatusView::unavailable(binding, error.message.clone()),
+            );
+            Err(error)
+        }
+    }
 }
 
 fn active_model_view(
@@ -3085,14 +3356,32 @@ fn language_requested(language: &LanguageSelection) -> Option<String> {
     }
 }
 
+fn normalize_detected_language(value: Option<String>) -> Option<String> {
+    value.map(|value| match normalize_language_selection(Some(&value)) {
+        Ok(LanguageSelection::Auto) => "auto".to_owned(),
+        Ok(LanguageSelection::Explicit(code)) => code,
+        Err(_) => value,
+    })
+}
+
 fn transcript_view(transcript: StoredTranscript) -> TranscriptView {
+    let language_requested_label = transcript
+        .language_requested
+        .as_deref()
+        .map(language_display_name);
+    let language_detected_label = transcript
+        .language_detected
+        .as_deref()
+        .map(language_display_name);
     TranscriptView {
         id: transcript.id.to_string(),
         created_at: transcript.created_at.to_string(),
         raw_text: transcript.raw_text,
         final_text: transcript.final_text,
         language_requested: transcript.language_requested,
+        language_requested_label,
         language_detected: transcript.language_detected,
+        language_detected_label,
         language_confidence_milli: transcript.language_confidence_milli,
         provider_id: transcript.provider_id,
         model_id: transcript.model_id.as_str().to_owned(),
@@ -3160,8 +3449,41 @@ fn emit_platform_error(app: &AppHandle, area: &'static str, message: String) {
     );
 }
 
+fn set_hotkey_status(app: &AppHandle, status: HotkeyStatusView) {
+    let state = app.state::<DesktopState>();
+    if let Ok(mut current) = state.hotkey_status.lock() {
+        *current = status.clone();
+    }
+    let _ = app.emit(
+        "desktop.v1.hotkey-status",
+        HotkeyStatusEvent {
+            api_version: 1,
+            status,
+        },
+    );
+}
+
+fn mark_hotkey_triggered(app: &AppHandle) {
+    let state = app.state::<DesktopState>();
+    let status = match state.hotkey_status.lock() {
+        Ok(mut status) => {
+            status.last_triggered_at = Some(OffsetDateTime::now_utc().to_string());
+            status.clone()
+        }
+        Err(_) => return,
+    };
+    let _ = app.emit(
+        "desktop.v1.hotkey-status",
+        HotkeyStatusEvent {
+            api_version: 1,
+            status,
+        },
+    );
+}
+
 fn dispatch_hotkey_toggle(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
+        mark_hotkey_triggered(&app);
         let state = app.state::<DesktopState>();
         let capture_phase = match state.coordinator.lock() {
             Ok(coordinator) => coordinator.capture_phase(),
@@ -3179,10 +3501,7 @@ fn dispatch_hotkey_toggle(app: AppHandle) {
                     Ok(settings) => start_recording_inner(
                         &app,
                         &state,
-                        StartRecordingInput {
-                            settings,
-                            language: None,
-                        },
+                        StartRecordingInput { settings },
                     )
                     .await
                     .map(|_| ()),
@@ -3196,47 +3515,112 @@ fn dispatch_hotkey_toggle(app: AppHandle) {
     });
 }
 
+fn spawn_global_hotkey(
+    app: &AppHandle,
+    binding: HotkeyBinding,
+    registration_id: i32,
+) -> Result<ActiveGlobalHotkey, DesktopCommandError> {
+    binding
+        .validate()
+        .map_err(|error| DesktopCommandError::new("invalid_hotkey", error.to_string()))?;
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let handle = GlobalHotkey::start(binding.clone(), sender, registration_id)
+        .map_err(|error| DesktopCommandError::new("hotkey_unavailable", error.to_string()))?;
+    let app_handle = app.clone();
+    if let Err(error) = std::thread::Builder::new()
+        .name("free-whisper-hotkey-dispatch".to_owned())
+        .spawn(move || {
+            for event in receiver {
+                if matches!(event, HotkeyEvent::Pressed) {
+                    dispatch_hotkey_toggle(app_handle.clone());
+                }
+            }
+        })
+    {
+        handle.shutdown();
+        return Err(DesktopCommandError::new(
+            "hotkey_unavailable",
+            format!("Die globale Tastenkombination konnte nicht gestartet werden: {error}"),
+        ));
+    }
+    Ok(ActiveGlobalHotkey { binding, handle })
+}
+
+fn register_global_hotkey(
+    app: &AppHandle,
+    binding: HotkeyBinding,
+) -> Result<HotkeyStatusView, DesktopCommandError> {
+    let state = app.state::<DesktopState>();
+    let old = state
+        .hotkey
+        .lock()
+        .map_err(|_| DesktopCommandError::new("internal", "hotkey state is unavailable"))?
+        .take();
+    if old.as_ref().is_some_and(|active| active.binding == binding) {
+        let status = HotkeyStatusView::registered(binding);
+        set_hotkey_status(app, status.clone());
+        *state
+            .hotkey
+            .lock()
+            .map_err(|_| DesktopCommandError::new("internal", "hotkey state is unavailable"))? = old;
+        return Ok(status);
+    }
+    let registration_id = old.as_ref().map_or(PRIMARY_HOTKEY_ID, |active| {
+        if active.handle.registration_id() == PRIMARY_HOTKEY_ID {
+            REBIND_HOTKEY_ID
+        } else {
+            PRIMARY_HOTKEY_ID
+        }
+    });
+    match spawn_global_hotkey(app, binding.clone(), registration_id) {
+        Ok(next) => {
+            if let Some(previous) = old {
+                previous.handle.shutdown();
+            }
+            *state
+                .hotkey
+                .lock()
+                .map_err(|_| DesktopCommandError::new("internal", "hotkey state is unavailable"))? = Some(next);
+            let status = HotkeyStatusView::registered(binding);
+            set_hotkey_status(app, status.clone());
+            Ok(status)
+        }
+        Err(error) => {
+            let restored_binding = old.as_ref().map(|active| active.binding.clone());
+            *state
+                .hotkey
+                .lock()
+                .map_err(|_| DesktopCommandError::new("internal", "hotkey state is unavailable"))? = old;
+            if let Some(binding) = restored_binding {
+                set_hotkey_status(app, HotkeyStatusView::registered(binding));
+            } else {
+                set_hotkey_status(
+                    app,
+                    HotkeyStatusView::unavailable(binding, error.message.clone()),
+                );
+            }
+            Err(error)
+        }
+    }
+}
+
 fn start_global_hotkey(app: &AppHandle) {
     let state = app.state::<DesktopState>();
     let (settings, settings_error) = match load_windows_integration_settings(&state) {
         Ok(value) => value,
         Err(error) => {
-            if let Ok(mut hotkey_error) = state.hotkey_error.lock() {
-                *hotkey_error = Some(error.message);
-            }
+            set_hotkey_status(
+                app,
+                HotkeyStatusView::unavailable(HotkeyBinding::default(), error.message),
+            );
             return;
         }
     };
     if let Some(error) = settings_error {
         emit_platform_error(app, "hotkey", error);
     }
-    let (sender, receiver) = std::sync::mpsc::channel();
-    match GlobalHotkey::start(settings.hotkey, sender) {
-        Ok(hotkey) => {
-            if let Ok(mut active) = state.hotkey.lock() {
-                *active = Some(hotkey);
-            }
-            let app_handle = app.clone();
-            if let Err(error) = std::thread::Builder::new()
-                .name("free-whisper-hotkey-dispatch".to_owned())
-                .spawn(move || {
-                    for event in receiver {
-                        if matches!(event, HotkeyEvent::Pressed) {
-                            dispatch_hotkey_toggle(app_handle.clone());
-                        }
-                    }
-                })
-            {
-                emit_platform_error(app, "hotkey", error.to_string());
-            }
-        }
-        Err(error) => {
-            let message = error.to_string();
-            if let Ok(mut hotkey_error) = state.hotkey_error.lock() {
-                *hotkey_error = Some(message.clone());
-            }
-            emit_platform_error(app, "hotkey", message);
-        }
+    if let Err(error) = register_global_hotkey(app, settings.hotkey) {
+        emit_platform_error(app, "hotkey", error.message);
     }
 }
 
@@ -3271,7 +3655,7 @@ fn request_clean_exit(app: AppHandle) {
         if let Ok(mut hotkey) = state.hotkey.lock()
             && let Some(hotkey) = hotkey.take()
         {
-            hotkey.shutdown();
+            hotkey.handle.shutdown();
         }
         app.exit(0);
     });
@@ -3491,7 +3875,7 @@ fn provider_error(error: ProviderError) -> DesktopCommandError {
         ProviderError::Unavailable(_) => ("provider_unavailable", error.to_string()),
         ProviderError::SidecarOutdated => (
             "sidecar_outdated",
-            "Die lokale Transkriptions-Engine passt nicht zu dieser App-Version. Starte die App über den Root-Schnellstart neu oder installiere den aktuellen Alpha.2-Installer.".to_owned(),
+            "Die lokale Transkriptions-Engine passt nicht zu dieser App-Version. Starte die App über den Root-Schnellstart neu oder installiere den aktuellen Alpha.3-Installer.".to_owned(),
         ),
         ProviderError::Protocol(_) => {
             eprintln!("free-whisper diagnostic: local provider protocol failure: {error}");
@@ -3551,7 +3935,10 @@ pub fn run() {
                 windows: WindowsDesktop,
                 credential_store: WindowsCredentialStore,
                 hotkey: Mutex::new(None),
-                hotkey_error: Mutex::new(None),
+                hotkey_status: Mutex::new(HotkeyStatusView::unavailable(
+                    HotkeyBinding::default(),
+                    "Die globale Tastenkombination wird registriert.".to_owned(),
+                )),
                 coordinator: Mutex::new(RecordingCoordinator::default()),
                 recording: Mutex::new(None),
                 processing: Mutex::new(None),
@@ -3590,6 +3977,8 @@ pub fn run() {
             copy_transcript,
             paste_transcript_to_original,
             save_windows_integration_settings,
+            reregister_global_hotkey,
+            save_transcription_preferences,
             recent_transcripts,
             search_transcripts,
             revert_transcript_correction,
@@ -3639,13 +4028,52 @@ mod tests {
     fn stale_sidecar_and_engine_protocol_failures_are_actionable_without_raw_details() {
         let stale = provider_error(ProviderError::SidecarOutdated);
         assert_eq!(stale.code, "sidecar_outdated");
-        assert!(stale.message.contains("Alpha.2-Installer"));
+        assert!(stale.message.contains("Alpha.3-Installer"));
 
         let protocol = provider_error(ProviderError::Protocol(
             "private inner transcript must not reach the UI".to_owned(),
         ));
         assert_eq!(protocol.code, "engine_protocol");
         assert!(!protocol.message.contains("private inner transcript"));
+    }
+
+    #[test]
+    fn transcription_preferences_accept_only_the_pinned_language_catalogue() {
+        assert!(matches!(
+            selected_language(&TranscriptionPreferences {
+                language: "auto".to_owned(),
+            }),
+            Ok(LanguageSelection::Auto)
+        ));
+        assert!(matches!(
+            selected_language(&TranscriptionPreferences {
+                language: "de".to_owned(),
+            }),
+            Ok(LanguageSelection::Explicit(language)) if language == "de"
+        ));
+        assert!(matches!(
+            selected_language(&TranscriptionPreferences {
+                language: "not-a-whisper-language".to_owned(),
+            }),
+            Err(DesktopCommandError { code, .. }) if code == "unsupported_language"
+        ));
+    }
+
+    #[test]
+    fn legacy_engine_language_names_are_normalized_for_history_labels() {
+        assert_eq!(
+            normalize_detected_language(Some("german".to_owned())).as_deref(),
+            Some("de")
+        );
+        assert_eq!(language_display_name("de"), "Deutsch");
+    }
+
+    #[test]
+    fn no_speech_is_a_successful_non_persistent_stop_outcome() {
+        let outcome = StopRecordingOutcome::NoSpeech {
+            reason: "empty_capture".to_owned(),
+        };
+        assert!(matches!(outcome, StopRecordingOutcome::NoSpeech { .. }));
     }
 
     #[test]

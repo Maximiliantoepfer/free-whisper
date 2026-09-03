@@ -22,6 +22,11 @@ pub use native::{
 #[serde(rename_all = "snake_case")]
 pub enum HotkeyKey {
     Space,
+    F8,
+    F9,
+    F10,
+    F11,
+    F12,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -37,7 +42,7 @@ impl Default for HotkeyBinding {
     fn default() -> Self {
         Self {
             control: true,
-            alt: true,
+            alt: false,
             shift: false,
             key: HotkeyKey::Space,
         }
@@ -59,6 +64,11 @@ impl HotkeyBinding {
         }
         segments.push(match self.key {
             HotkeyKey::Space => "Leertaste",
+            HotkeyKey::F8 => "F8",
+            HotkeyKey::F9 => "F9",
+            HotkeyKey::F10 => "F10",
+            HotkeyKey::F11 => "F11",
+            HotkeyKey::F12 => "F12",
         });
         segments.join("+")
     }
@@ -70,6 +80,18 @@ impl HotkeyBinding {
             ));
         }
         Ok(())
+    }
+
+    #[must_use]
+    pub const fn virtual_key(self) -> u32 {
+        match self.key {
+            HotkeyKey::Space => 0x20,
+            HotkeyKey::F8 => 0x77,
+            HotkeyKey::F9 => 0x78,
+            HotkeyKey::F10 => 0x79,
+            HotkeyKey::F11 => 0x7A,
+            HotkeyKey::F12 => 0x7B,
+        }
     }
 }
 
@@ -226,9 +248,23 @@ mod tests {
     fn default_hotkey_is_the_documented_toggle_binding() {
         assert_eq!(
             HotkeyBinding::default().display_name(),
-            "Ctrl+Alt+Leertaste"
+            "Ctrl+Leertaste"
         );
         assert!(HotkeyBinding::default().validate().is_ok());
+    }
+
+    #[test]
+    fn hotkey_virtual_keys_are_explicit_and_auditable() {
+        assert_eq!(
+            HotkeyBinding {
+                control: true,
+                alt: false,
+                shift: false,
+                key: HotkeyKey::F12,
+            }
+            .virtual_key(),
+            0x7B
+        );
     }
 
     #[test]

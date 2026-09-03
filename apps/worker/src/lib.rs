@@ -850,9 +850,9 @@ impl WorkerEngine for WhisperCppEngine {
             // Do not advertise a finer capability than this adapter can prove.
             word_timestamps: false,
             model_switching: false,
-            // The server may return a detected language, but does not promise it
-            // in its unversioned contract; expose it opportunistically only.
-            language_detection: false,
+            // This adapter always asks whisper.cpp for `language=auto` when
+            // requested, so language detection is an available local feature.
+            language_detection: true,
             gpu: (self.config.backend != ExecutionBackendV1::Cpu).then(|| {
                 free_whisper_protocol::GpuInfoV1 {
                     backend: self.config.backend,
@@ -898,6 +898,7 @@ impl WorkerEngine for WhisperCppEngine {
                 (pcm_f32le_to_wav(&request.audio.bytes)?, "audio.wav")
             }
         };
+        let controls = inference_controls(&request.options.language);
         let mut form = reqwest::multipart::Form::new()
             .text(
                 "temperature",
@@ -909,12 +910,12 @@ impl WorkerEngine for WhisperCppEngine {
                 request.options.word_timestamps.to_string(),
             )
             .text("response_format", "verbose_json")
+            // The upstream server defaults to English if this field is absent.
+            // Always select transcription explicitly; translation is never an
+            // implicit consequence of automatic source-language detection.
+            .text("language", controls.language)
+            .text("translate", controls.translate.to_string())
             .text("prompt", request.options.prompt_terms.join(", "));
-        if let free_whisper_protocol::LanguageRequestV1::Explicit(language) =
-            &request.options.language
-        {
-            form = form.text("language", language.clone());
-        }
         form = form.part(
             "file",
             reqwest::multipart::Part::bytes(audio_bytes)
@@ -1065,6 +1066,25 @@ impl WhisperCppSegment {
             end_ms: end,
             text: self.text,
         })
+    }
+}
+
+struct WhisperCppInferenceControls {
+    language: String,
+    translate: bool,
+}
+
+fn inference_controls(
+    language: &free_whisper_protocol::LanguageRequestV1,
+) -> WhisperCppInferenceControls {
+    WhisperCppInferenceControls {
+        language: match language {
+            free_whisper_protocol::LanguageRequestV1::Auto => "auto".to_owned(),
+            free_whisper_protocol::LanguageRequestV1::Explicit(value) => value.clone(),
+        },
+        // A transcription request must never become translation merely because
+        // its source language is detected automatically.
+        translate: false,
     }
 }
 
@@ -1317,5 +1337,18 @@ mod tests {
             language_probability_to_milli(1.001),
             Err(EngineError::Protocol(_))
         ));
+    }
+
+    #[test]
+    fn auto_language_is_sent_to_the_engine_instead_of_using_english_by_default() {
+        let automatic = inference_controls(&free_whisper_protocol::LanguageRequestV1::Auto);
+        assert_eq!(automatic.language, "auto");
+        assert!(!automatic.translate);
+
+        let german = inference_controls(&free_whisper_protocol::LanguageRequestV1::Explicit(
+            "de".to_owned(),
+        ));
+        assert_eq!(german.language, "de");
+        assert!(!german.translate);
     }
 }

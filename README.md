@@ -41,7 +41,7 @@ After the signed Alpha manifest has been provisioned, the desktop app supports:
   voice/silence validation;
 - local whisper.cpp worker transcription, conservative lexicon corrections,
   local transcript history and explicit clipboard copying;
-- Windows tray lifecycle and the global default hotkey `Ctrl+Alt+Leertaste`;
+- Windows tray lifecycle and the configurable global default hotkey `Ctrl+Leertaste`;
 - optional Auto-Paste, guarded by an exact HWND/PID/process-start snapshot,
   UAC detection and a conditional Windows clipboard sequence-counter restore.
 - a local lexicon workspace with profiles, explicit variants, transactional
@@ -99,6 +99,23 @@ adapter.
 Run `./scripts/provision-alpha-manifest.ps1` only when changing the Alpha
 catalogue. A real local transcription needs an explicitly installed model and
 a working microphone.
+
+## Sprache, Hotkey und Kurzaufnahmen
+
+**Automatisch erkennen** is the default for every new recording. The worker
+explicitly sends `language=auto` and `translate=false` to whisper.cpp, so a
+German recording is transcribed as German rather than translated to English.
+The recording page also offers every language in the pinned multilingual
+whisper.cpp catalogue for a deliberate one-language recording. For a genuine
+language change within one recording, leave the setting at **Automatisch**.
+
+The default global binding is **Ctrl+Leertaste**. `F8` through `F12` and
+modifiers can be selected under **Windows & Sicherheit**; a collision is shown
+instead of silently selecting another key. A short Push-to-talk press or pure
+VAD silence is a normal no-op: no engine request and no history record are
+created, and the UI only reports “Keine Sprache aufgenommen”. Tiny is
+multilingual, but Base is the recommended CPU preset for more reliable
+German/English recognition.
 
 
 ## Developer Start

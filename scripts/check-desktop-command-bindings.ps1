@@ -23,8 +23,22 @@ if ($missingFromFrontend -or $unknownToBackend) {
     throw 'Desktop command bindings have drifted'
 }
 
-$requiredBackendFields = @('sequence: u64', 'capture_phase: CapturePhaseView', 'active_job_id: Option<String>')
-$requiredFrontendFields = @('sequence: number', 'capturePhase: CapturePhase', 'activeJobId: string | null')
+$requiredBackendFields = @(
+    'sequence: u64',
+    'capture_phase: CapturePhaseView',
+    'active_job_id: Option<String>',
+    'transcription_preferences: TranscriptionPreferences',
+    'supported_languages: Vec<SupportedLanguageView>',
+    'hotkey_status: HotkeyStatusView'
+)
+$requiredFrontendFields = @(
+    'sequence: number',
+    'capturePhase: CapturePhase',
+    'activeJobId: string | null',
+    'transcriptionPreferences: TranscriptionPreferences',
+    'supportedLanguages: SupportedLanguage[]',
+    'hotkeyStatus: HotkeyStatus'
+)
 foreach ($field in $requiredBackendFields) {
     if (-not $backend.Contains($field)) { throw "Desktop backend DTO field is missing: $field" }
 }

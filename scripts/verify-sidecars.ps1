@@ -35,7 +35,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 $actual = [string]::Join("`n", $actualLines).Trim()
 if ($actual -ne $expected) {
-    throw "Local worker is stale or incompatible (expected '$expected', received '$actual'). Run 'corepack pnpm tauri:dev' from the repository root or install the current Alpha.2 installer."
+    throw "Local worker is stale or incompatible (expected '$expected', received '$actual'). Run 'corepack pnpm tauri:dev' from the repository root or install the current installer."
 }
 
 Write-Output "Sidecar preflight passed: $actual"

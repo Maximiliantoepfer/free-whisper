@@ -285,6 +285,158 @@ pub enum LanguageSelection {
     Explicit(String),
 }
 
+/// A language understood by the pinned multilingual whisper.cpp models.
+///
+/// The catalogue is intentionally code-owned instead of being accepted from
+/// arbitrary client input. It mirrors the `g_lang` table in whisper.cpp
+/// `23ee035`; an explicit selection is therefore safe to pass to the local
+/// engine and to a compatible v1 worker.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct WhisperLanguage {
+    pub code: &'static str,
+    pub display_name: &'static str,
+    engine_name: &'static str,
+}
+
+const WHISPER_LANGUAGES: &[WhisperLanguage] = &[
+    WhisperLanguage { code: "en", display_name: "English", engine_name: "english" },
+    WhisperLanguage { code: "zh", display_name: "Chinese", engine_name: "chinese" },
+    WhisperLanguage { code: "de", display_name: "Deutsch", engine_name: "german" },
+    WhisperLanguage { code: "es", display_name: "Spanish", engine_name: "spanish" },
+    WhisperLanguage { code: "ru", display_name: "Russian", engine_name: "russian" },
+    WhisperLanguage { code: "ko", display_name: "Korean", engine_name: "korean" },
+    WhisperLanguage { code: "fr", display_name: "French", engine_name: "french" },
+    WhisperLanguage { code: "ja", display_name: "Japanese", engine_name: "japanese" },
+    WhisperLanguage { code: "pt", display_name: "Portuguese", engine_name: "portuguese" },
+    WhisperLanguage { code: "tr", display_name: "Turkish", engine_name: "turkish" },
+    WhisperLanguage { code: "pl", display_name: "Polish", engine_name: "polish" },
+    WhisperLanguage { code: "ca", display_name: "Catalan", engine_name: "catalan" },
+    WhisperLanguage { code: "nl", display_name: "Dutch", engine_name: "dutch" },
+    WhisperLanguage { code: "ar", display_name: "Arabic", engine_name: "arabic" },
+    WhisperLanguage { code: "sv", display_name: "Swedish", engine_name: "swedish" },
+    WhisperLanguage { code: "it", display_name: "Italian", engine_name: "italian" },
+    WhisperLanguage { code: "id", display_name: "Indonesian", engine_name: "indonesian" },
+    WhisperLanguage { code: "hi", display_name: "Hindi", engine_name: "hindi" },
+    WhisperLanguage { code: "fi", display_name: "Finnish", engine_name: "finnish" },
+    WhisperLanguage { code: "vi", display_name: "Vietnamese", engine_name: "vietnamese" },
+    WhisperLanguage { code: "he", display_name: "Hebrew", engine_name: "hebrew" },
+    WhisperLanguage { code: "uk", display_name: "Ukrainian", engine_name: "ukrainian" },
+    WhisperLanguage { code: "el", display_name: "Greek", engine_name: "greek" },
+    WhisperLanguage { code: "ms", display_name: "Malay", engine_name: "malay" },
+    WhisperLanguage { code: "cs", display_name: "Czech", engine_name: "czech" },
+    WhisperLanguage { code: "ro", display_name: "Romanian", engine_name: "romanian" },
+    WhisperLanguage { code: "da", display_name: "Danish", engine_name: "danish" },
+    WhisperLanguage { code: "hu", display_name: "Hungarian", engine_name: "hungarian" },
+    WhisperLanguage { code: "ta", display_name: "Tamil", engine_name: "tamil" },
+    WhisperLanguage { code: "no", display_name: "Norwegian", engine_name: "norwegian" },
+    WhisperLanguage { code: "th", display_name: "Thai", engine_name: "thai" },
+    WhisperLanguage { code: "ur", display_name: "Urdu", engine_name: "urdu" },
+    WhisperLanguage { code: "hr", display_name: "Croatian", engine_name: "croatian" },
+    WhisperLanguage { code: "bg", display_name: "Bulgarian", engine_name: "bulgarian" },
+    WhisperLanguage { code: "lt", display_name: "Lithuanian", engine_name: "lithuanian" },
+    WhisperLanguage { code: "la", display_name: "Latin", engine_name: "latin" },
+    WhisperLanguage { code: "mi", display_name: "Maori", engine_name: "maori" },
+    WhisperLanguage { code: "ml", display_name: "Malayalam", engine_name: "malayalam" },
+    WhisperLanguage { code: "cy", display_name: "Welsh", engine_name: "welsh" },
+    WhisperLanguage { code: "sk", display_name: "Slovak", engine_name: "slovak" },
+    WhisperLanguage { code: "te", display_name: "Telugu", engine_name: "telugu" },
+    WhisperLanguage { code: "fa", display_name: "Persian", engine_name: "persian" },
+    WhisperLanguage { code: "lv", display_name: "Latvian", engine_name: "latvian" },
+    WhisperLanguage { code: "bn", display_name: "Bengali", engine_name: "bengali" },
+    WhisperLanguage { code: "sr", display_name: "Serbian", engine_name: "serbian" },
+    WhisperLanguage { code: "az", display_name: "Azerbaijani", engine_name: "azerbaijani" },
+    WhisperLanguage { code: "sl", display_name: "Slovenian", engine_name: "slovenian" },
+    WhisperLanguage { code: "kn", display_name: "Kannada", engine_name: "kannada" },
+    WhisperLanguage { code: "et", display_name: "Estonian", engine_name: "estonian" },
+    WhisperLanguage { code: "mk", display_name: "Macedonian", engine_name: "macedonian" },
+    WhisperLanguage { code: "br", display_name: "Breton", engine_name: "breton" },
+    WhisperLanguage { code: "eu", display_name: "Basque", engine_name: "basque" },
+    WhisperLanguage { code: "is", display_name: "Icelandic", engine_name: "icelandic" },
+    WhisperLanguage { code: "hy", display_name: "Armenian", engine_name: "armenian" },
+    WhisperLanguage { code: "ne", display_name: "Nepali", engine_name: "nepali" },
+    WhisperLanguage { code: "mn", display_name: "Mongolian", engine_name: "mongolian" },
+    WhisperLanguage { code: "bs", display_name: "Bosnian", engine_name: "bosnian" },
+    WhisperLanguage { code: "kk", display_name: "Kazakh", engine_name: "kazakh" },
+    WhisperLanguage { code: "sq", display_name: "Albanian", engine_name: "albanian" },
+    WhisperLanguage { code: "sw", display_name: "Swahili", engine_name: "swahili" },
+    WhisperLanguage { code: "gl", display_name: "Galician", engine_name: "galician" },
+    WhisperLanguage { code: "mr", display_name: "Marathi", engine_name: "marathi" },
+    WhisperLanguage { code: "pa", display_name: "Punjabi", engine_name: "punjabi" },
+    WhisperLanguage { code: "si", display_name: "Sinhala", engine_name: "sinhala" },
+    WhisperLanguage { code: "km", display_name: "Khmer", engine_name: "khmer" },
+    WhisperLanguage { code: "sn", display_name: "Shona", engine_name: "shona" },
+    WhisperLanguage { code: "yo", display_name: "Yoruba", engine_name: "yoruba" },
+    WhisperLanguage { code: "so", display_name: "Somali", engine_name: "somali" },
+    WhisperLanguage { code: "af", display_name: "Afrikaans", engine_name: "afrikaans" },
+    WhisperLanguage { code: "oc", display_name: "Occitan", engine_name: "occitan" },
+    WhisperLanguage { code: "ka", display_name: "Georgian", engine_name: "georgian" },
+    WhisperLanguage { code: "be", display_name: "Belarusian", engine_name: "belarusian" },
+    WhisperLanguage { code: "tg", display_name: "Tajik", engine_name: "tajik" },
+    WhisperLanguage { code: "sd", display_name: "Sindhi", engine_name: "sindhi" },
+    WhisperLanguage { code: "gu", display_name: "Gujarati", engine_name: "gujarati" },
+    WhisperLanguage { code: "am", display_name: "Amharic", engine_name: "amharic" },
+    WhisperLanguage { code: "yi", display_name: "Yiddish", engine_name: "yiddish" },
+    WhisperLanguage { code: "lo", display_name: "Lao", engine_name: "lao" },
+    WhisperLanguage { code: "uz", display_name: "Uzbek", engine_name: "uzbek" },
+    WhisperLanguage { code: "fo", display_name: "Faroese", engine_name: "faroese" },
+    WhisperLanguage { code: "ht", display_name: "Haitian Creole", engine_name: "haitian creole" },
+    WhisperLanguage { code: "ps", display_name: "Pashto", engine_name: "pashto" },
+    WhisperLanguage { code: "tk", display_name: "Turkmen", engine_name: "turkmen" },
+    WhisperLanguage { code: "nn", display_name: "Nynorsk", engine_name: "nynorsk" },
+    WhisperLanguage { code: "mt", display_name: "Maltese", engine_name: "maltese" },
+    WhisperLanguage { code: "sa", display_name: "Sanskrit", engine_name: "sanskrit" },
+    WhisperLanguage { code: "lb", display_name: "Luxembourgish", engine_name: "luxembourgish" },
+    WhisperLanguage { code: "my", display_name: "Myanmar", engine_name: "myanmar" },
+    WhisperLanguage { code: "bo", display_name: "Tibetan", engine_name: "tibetan" },
+    WhisperLanguage { code: "tl", display_name: "Tagalog", engine_name: "tagalog" },
+    WhisperLanguage { code: "mg", display_name: "Malagasy", engine_name: "malagasy" },
+    WhisperLanguage { code: "as", display_name: "Assamese", engine_name: "assamese" },
+    WhisperLanguage { code: "tt", display_name: "Tatar", engine_name: "tatar" },
+    WhisperLanguage { code: "haw", display_name: "Hawaiian", engine_name: "hawaiian" },
+    WhisperLanguage { code: "ln", display_name: "Lingala", engine_name: "lingala" },
+    WhisperLanguage { code: "ha", display_name: "Hausa", engine_name: "hausa" },
+    WhisperLanguage { code: "ba", display_name: "Bashkir", engine_name: "bashkir" },
+    WhisperLanguage { code: "jw", display_name: "Javanese", engine_name: "javanese" },
+    WhisperLanguage { code: "su", display_name: "Sundanese", engine_name: "sundanese" },
+    WhisperLanguage { code: "yue", display_name: "Cantonese", engine_name: "cantonese" },
+];
+
+#[derive(Clone, Debug, Error, Eq, PartialEq)]
+#[error("unsupported whisper language: {0}")]
+pub struct LanguageSelectionError(String);
+
+#[must_use]
+pub const fn supported_whisper_languages() -> &'static [WhisperLanguage] {
+    WHISPER_LANGUAGES
+}
+
+pub fn normalize_language_selection(value: Option<&str>) -> Result<LanguageSelection, LanguageSelectionError> {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(LanguageSelection::Auto);
+    };
+    if value.eq_ignore_ascii_case("auto") {
+        return Ok(LanguageSelection::Auto);
+    }
+    let normalized = value.to_ascii_lowercase();
+    WHISPER_LANGUAGES
+        .iter()
+        .find(|language| normalized == language.code || normalized == language.engine_name)
+        .map(|language| LanguageSelection::Explicit(language.code.to_owned()))
+        .ok_or_else(|| LanguageSelectionError(value.to_owned()))
+}
+
+#[must_use]
+pub fn language_display_name(value: &str) -> String {
+    let normalized = value.trim().to_ascii_lowercase();
+    if normalized == "auto" {
+        return "Automatisch".to_owned();
+    }
+    WHISPER_LANGUAGES
+        .iter()
+        .find(|language| normalized == language.code || normalized == language.engine_name)
+        .map_or_else(|| value.to_owned(), |language| language.display_name.to_owned())
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct PcmF32Mono {
     pub sample_rate_hz: u32,
@@ -482,5 +634,20 @@ mod tests {
         let result = PcmF32Mono::new(16_000, vec![0.0, f32::NAN]);
 
         assert_eq!(result, Err(AudioPayloadError::NonFiniteSample));
+    }
+
+    #[test]
+    fn whisper_language_selection_is_normalized_against_the_pinned_catalogue() {
+        assert_eq!(
+            normalize_language_selection(None).expect("auto is valid"),
+            LanguageSelection::Auto
+        );
+        assert_eq!(
+            normalize_language_selection(Some("german")).expect("engine alias is valid"),
+            LanguageSelection::Explicit("de".to_owned())
+        );
+        assert_eq!(language_display_name("de"), "Deutsch");
+        assert_eq!(supported_whisper_languages().len(), 100);
+        assert!(normalize_language_selection(Some("not-a-language")).is_err());
     }
 }

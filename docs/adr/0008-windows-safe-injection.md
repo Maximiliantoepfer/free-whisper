@@ -17,7 +17,7 @@ time and elevation queries, clipboard sequence access and `SendInput`. The
 rest of the crate exposes safe value types and a pure policy that requires an
 exact HWND, PID and process-start FILETIME match and rejects elevated targets.
 
-`Ctrl+Alt+Leertaste` is the default toggle hotkey. It uses an isolated message
+`Ctrl+Leertaste` is the default toggle hotkey. It uses an isolated message
 loop, `MOD_NOREPEAT` and guaranteed `UnregisterHotKey` on shutdown. A failed
 registration is shown to the user; there is no alternate hidden binding.
 

@@ -56,13 +56,30 @@ export interface HotkeyBinding {
   control: boolean;
   alt: boolean;
   shift: boolean;
-  key: 'space';
+  key: 'space' | 'f8' | 'f9' | 'f10' | 'f11' | 'f12';
 }
 
 export interface WindowsIntegrationSettings {
   hotkey: HotkeyBinding;
+  hotkeyUserSelected: boolean;
   autoPaste: boolean;
   restoreClipboardAfterPaste: boolean;
+}
+
+export interface TranscriptionPreferences {
+  language: string;
+}
+
+export interface SupportedLanguage {
+  code: string;
+  displayName: string;
+}
+
+export interface HotkeyStatus {
+  phase: 'registered' | 'unavailable';
+  binding: HotkeyBinding;
+  detail: string | null;
+  lastTriggeredAt: string | null;
 }
 
 export interface InstalledModel {
@@ -120,7 +137,9 @@ export interface Transcript {
   rawText: string;
   finalText: string;
   languageRequested: string | null;
+  languageRequestedLabel: string | null;
   languageDetected: string | null;
+  languageDetectedLabel: string | null;
   languageConfidenceMilli: number | null;
   providerId: string;
   modelId: string;
@@ -148,9 +167,12 @@ export interface RuntimeSnapshot {
   microphoneError: string | null;
   recordingSettings: RecordingSettings;
   recordingSettingsError: string | null;
+  transcriptionPreferences: TranscriptionPreferences;
+  transcriptionPreferencesError: string | null;
+  supportedLanguages: SupportedLanguage[];
   windowsIntegration: WindowsIntegrationSettings;
   windowsIntegrationError: string | null;
-  hotkeyError: string | null;
+  hotkeyStatus: HotkeyStatus;
   capturePhase: CapturePhase;
   activeJobId: string | null;
   recording: RecordingStatus | null;
@@ -280,6 +302,15 @@ export interface PlatformError {
   message: string;
 }
 
+export interface HotkeyStatusEvent {
+  apiVersion: 1;
+  status: HotkeyStatus;
+}
+
+export type StopRecordingOutcome =
+  | { kind: 'transcript'; transcript: Transcript }
+  | { kind: 'no_speech'; reason: 'empty_capture' | 'vad_below_minimum' };
+
 export function desktopError(error: unknown): DesktopError {
   if (typeof error === 'object' && error !== null && 'code' in error && 'message' in error) {
     const candidate = error as { code?: unknown; message?: unknown };
@@ -302,16 +333,19 @@ export const desktop = {
   activateModel: (modelId: string) => invoke<void>('activate_model', { modelId }),
   deleteModel: (modelId: string, confirmedByUser: boolean) =>
     invoke<void>('delete_model', { modelId, confirmedByUser }),
-  startRecording: (input: { settings: RecordingSettings; language: string | null }) =>
+  startRecording: (input: { settings: RecordingSettings }) =>
     invoke<RecordingStatus>('start_recording', { input }),
   recordingStatus: () => invoke<RecordingStatus | null>('recording_status'),
-  stopRecording: () => invoke<Transcript>('stop_recording'),
+  stopRecording: () => invoke<StopRecordingOutcome>('stop_recording'),
   cancelCurrentJob: () => invoke<void>('cancel_current_job'),
   copyTranscript: (transcriptId: string) => invoke<void>('copy_transcript', { transcriptId }),
   pasteTranscriptToOriginal: (transcriptId: string) =>
     invoke<Transcript>('paste_transcript_to_original', { transcriptId }),
   saveWindowsIntegrationSettings: (settings: WindowsIntegrationSettings) =>
-    invoke<void>('save_windows_integration_settings', { settings }),
+    invoke<HotkeyStatus>('save_windows_integration_settings', { settings }),
+  reregisterGlobalHotkey: () => invoke<HotkeyStatus>('reregister_global_hotkey'),
+  saveTranscriptionPreferences: (preferences: TranscriptionPreferences) =>
+    invoke<void>('save_transcription_preferences', { preferences }),
   recentTranscripts: () => invoke<Transcript[]>('recent_transcripts'),
   searchTranscripts: (query: string) => invoke<Transcript[]>('search_transcripts', { query }),
   revertTranscriptCorrection: (transcriptId: string, correctionId: string) =>
@@ -366,4 +400,8 @@ export function onStateChange(handler: (event: StateChange) => void): Promise<Un
 
 export function onPlatformError(handler: (event: PlatformError) => void): Promise<UnlistenFn> {
   return listen<PlatformError>('desktop.v1.platform-error', (event) => handler(event.payload));
+}
+
+export function onHotkeyStatus(handler: (event: HotkeyStatusEvent) => void): Promise<UnlistenFn> {
+  return listen<HotkeyStatusEvent>('desktop.v1.hotkey-status', (event) => handler(event.payload));
 }

@@ -19,3 +19,8 @@ export function pttActionAfterPreparation(released: boolean, cancelled: boolean)
   if (cancelled) return 'cancel';
   return released ? 'stop' : 'none';
 }
+
+/** A short press or VAD-only silence is a successful no-op, not an error. */
+export function noSpeechNotice(): string {
+  return 'Keine Sprache aufgenommen – es wurde nichts transkribiert.';
+}

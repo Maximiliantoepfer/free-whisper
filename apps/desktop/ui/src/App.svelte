@@ -4,6 +4,7 @@
     desktop,
     desktopError,
     onDownloadProgress,
+    onHotkeyStatus,
     onPlatformError,
     onStateChange,
     type AppState,
@@ -16,12 +17,14 @@
     type RemoteProviderWorkspace,
     type RuntimeSnapshot,
     type Transcript,
+    type TranscriptionPreferences,
     type WindowsIntegrationSettings
   } from './lib/api/desktop';
   import { labelForState } from './lib/status';
   import {
     acceptsStateEvent,
     isTerminalState,
+    noSpeechNotice,
     pttActionAfterPreparation,
     type DeferredPttAction
   } from './lib/recording-lifecycle';
@@ -59,10 +62,12 @@
     vad: { enabled: true, aggressiveness: 2, minimumSpeechMs: 180, endSilenceMs: 1200 }
   };
   let windowsSettings: WindowsIntegrationSettings = {
-    hotkey: { control: true, alt: true, shift: false, key: 'space' },
+    hotkey: { control: true, alt: false, shift: false, key: 'space' },
+    hotkeyUserSelected: false,
     autoPaste: false,
     restoreClipboardAfterPaste: true
   };
+  let transcriptionPreferences: TranscriptionPreferences = { language: 'auto' };
   let settingsLoaded = false;
   let profileName = '';
   let entryCanonical = '';
@@ -87,7 +92,7 @@
     windowsSettings.hotkey.control ? 'Ctrl' : '',
     windowsSettings.hotkey.alt ? 'Alt' : '',
     windowsSettings.hotkey.shift ? 'Shift' : '',
-    'Leertaste'
+    hotkeyKeyLabel(windowsSettings.hotkey.key)
   ].filter(Boolean).join('+');
 
   onMount(() => {
@@ -111,6 +116,10 @@
     void onPlatformError((event) => {
       if (event.apiVersion === 1) errorMessage = event.message;
     }).then((unlisten) => unlisteners.push(unlisten));
+    void onHotkeyStatus((event) => {
+      if (event.apiVersion !== 1 || !snapshot) return;
+      snapshot = { ...snapshot, hotkeyStatus: event.status };
+    }).then((unlisten) => unlisteners.push(unlisten));
     return () => {
       stopStatusPolling();
       unlisteners.forEach((unlisten) => unlisten());
@@ -130,10 +139,13 @@
             : next.inputDevices.find((device) => device.isDefault)?.id ?? null
         };
         windowsSettings = next.windowsIntegration;
+        transcriptionPreferences = next.transcriptionPreferences;
         settingsLoaded = true;
       }
-      if (next.recordingSettingsError || next.windowsIntegrationError || next.hotkeyError) {
-        errorMessage = next.recordingSettingsError ?? next.windowsIntegrationError ?? next.hotkeyError;
+      if (next.recordingSettingsError || next.transcriptionPreferencesError || next.windowsIntegrationError) {
+        errorMessage = next.recordingSettingsError
+          ?? next.transcriptionPreferencesError
+          ?? next.windowsIntegrationError;
       }
       if (loadCatalog && next.manifestAvailable) catalog = await desktop.modelCatalog();
       if (page === 'history') history = await desktop.recentTranscripts();
@@ -206,7 +218,7 @@
     busyAction = 'record';
     const operation = (async () => {
       try {
-        const recording = await desktop.startRecording({ settings, language: null });
+        const recording = await desktop.startRecording({ settings });
         snapshot = snapshot ? { ...snapshot, recording, capturePhase: 'recording' } : snapshot;
         state = 'recording';
         beginStatusPolling();
@@ -243,7 +255,14 @@
     const operation = (async () => {
       try {
         state = 'finalizing_audio';
-        const transcript = await desktop.stopRecording();
+        const outcome = await desktop.stopRecording();
+        if (outcome.kind === 'no_speech') {
+          state = 'idle';
+          notice = noSpeechNotice();
+          snapshot = snapshot ? { ...snapshot, recording: null, processing: false, capturePhase: 'idle' } : snapshot;
+          return;
+        }
+        const transcript = outcome.transcript;
         result = transcript;
         state = transcript.injectionOutcome === 'inserted' ? 'completed' : 'awaiting_injection_confirmation';
         snapshot = snapshot ? { ...snapshot, recording: null, processing: false, lastTranscript: transcript, capturePhase: 'idle' } : snapshot;
@@ -332,8 +351,34 @@
   async function saveWindowsSettings() {
     busyAction = 'windows-settings';
     try {
-      await desktop.saveWindowsIntegrationSettings(windowsSettings);
-      notice = 'Windows-Einstellungen sind lokal gespeichert. Eine geänderte Tastenkombination wird beim nächsten App-Start registriert.';
+      const hotkeyStatus = await desktop.saveWindowsIntegrationSettings(windowsSettings);
+      notice = hotkeyStatus.phase === 'registered'
+        ? `Windows-Einstellungen gespeichert. ${hotkeyLabel} ist jetzt aktiv.`
+        : 'Windows-Einstellungen wurden gespeichert, aber die Tastenkombination ist nicht verfügbar.';
+      await refresh(false);
+    } catch (error) { errorMessage = desktopError(error).message; }
+    finally { busyAction = null; }
+  }
+
+  async function saveTranscriptionSettings() {
+    busyAction = 'transcription-settings';
+    try {
+      await desktop.saveTranscriptionPreferences(transcriptionPreferences);
+      notice = transcriptionPreferences.language === 'auto'
+        ? 'Spracherkennung erfolgt pro Aufnahme automatisch. Übersetzen bleibt deaktiviert.'
+        : 'Die gewählte Sprache wird für neue Aufnahmen verbindlich verwendet.';
+      await refresh(false);
+    } catch (error) { errorMessage = desktopError(error).message; }
+    finally { busyAction = null; }
+  }
+
+  async function reregisterHotkey() {
+    busyAction = 'hotkey-reregister';
+    try {
+      const status = await desktop.reregisterGlobalHotkey();
+      notice = status.phase === 'registered'
+        ? `${hotkeyLabel} wurde erfolgreich neu registriert.`
+        : 'Die Tastenkombination konnte nicht registriert werden.';
       await refresh(false);
     } catch (error) { errorMessage = desktopError(error).message; }
     finally { busyAction = null; }
@@ -552,6 +597,9 @@
     const seconds = Math.floor(milliseconds / 1000);
     return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
   }
+  function hotkeyKeyLabel(key: WindowsIntegrationSettings['hotkey']['key']) {
+    return { space: 'Leertaste', f8: 'F8', f9: 'F9', f10: 'F10', f11: 'F11', f12: 'F12' }[key];
+  }
   function presetLabel(preset: ModelCatalogItem['preset']) { return { fast: 'Schnell', balanced: 'Ausgewogen', high_quality: 'Hohe Qualität' }[preset]; }
   function outcomeLabel(transcript = result) {
     if (!transcript) return 'Nicht kopiert';
@@ -681,7 +729,7 @@
         <div class="page-heading"><div><span class="workspace-kicker">LOKALER VERLAUF</span><h1 id="history-title">Transkripte</h1><p>Audiodateien werden nicht gespeichert. Ergebnis, Korrekturen und Laufzeiten liegen lokal in SQLite.</p></div></div>
         <label class="search-field"><span>Verlauf durchsuchen</span><input bind:value={historyQuery} maxlength="512" placeholder="Text suchen – Sonderzeichen bleiben wörtlich" on:input={() => void searchHistory()} /></label>
         {#if history.length === 0}<div class="empty-state">Noch keine Transkription. Starte auf der Aufnahmeseite.</div>{/if}
-        <div class="history-list">{#each history as transcript}<button class="history-row" on:click={() => { result = transcript; page = 'home'; }}><time>{new Date(transcript.createdAt).toLocaleString('de-DE')}</time><strong>{transcript.finalText || 'Leeres Ergebnis'}</strong><span>{outcomeLabel(transcript)} · {formatDuration(transcript.processingMs)}</span></button>{/each}</div>
+        <div class="history-list">{#each history as transcript}<button class="history-row" on:click={() => { result = transcript; page = 'home'; }}><time>{new Date(transcript.createdAt).toLocaleString('de-DE')}</time><strong>{transcript.finalText || 'Leeres Ergebnis'}</strong><span>{transcript.languageDetectedLabel ?? transcript.languageRequestedLabel ?? 'Sprache unbekannt'} · {outcomeLabel(transcript)} · {formatDuration(transcript.processingMs)}</span></button>{/each}</div>
       </section>
     {:else if page === 'lexicon'}
       <section class="page lexicon-page" aria-labelledby="lexicon-title">
@@ -719,7 +767,7 @@
     {:else if page === 'settings'}
       <section class="page settings-page" aria-labelledby="settings-title">
         <div class="page-heading"><div><span class="workspace-kicker">WINDOWS-INTEGRATION</span><h1 id="settings-title">Sicher übergeben</h1><p>Copy bleibt der Standard. Automatisches Einfügen ist freiwillig und prüft den ursprünglichen Fensterkontext erneut.</p></div></div>
-        <article class="settings-card"><div class="setting-title"><div><h2>Globaler Hotkey</h2><p>Schaltet die Aufnahme unabhängig vom aktiven Programm um.</p></div><kbd>{hotkeyLabel}</kbd></div><p class="muted">Die Tastenkombination wird beim App-Start registriert. Eine Kollision oder ungültige Bindung erscheint sichtbar statt still ignoriert zu werden.</p>{#if snapshot.hotkeyError}<p class="field-error">{snapshot.hotkeyError}</p>{/if}</article>
+        <article class="settings-card"><div class="setting-title"><div><h2>Globaler Hotkey</h2><p>Schaltet die Aufnahme unabhängig vom aktiven Programm um.</p></div><kbd>{hotkeyLabel}</kbd></div><p class="muted">Der Standard ist Ctrl+Leertaste. Die Kombination wird sofort geprüft; bei einer Kollision bleibt die letzte funktionierende Registrierung aktiv.</p><div class="field-grid hotkey-fields"><label class="checkbox compact"><input type="checkbox" bind:checked={windowsSettings.hotkey.control} /> Ctrl</label><label class="checkbox compact"><input type="checkbox" bind:checked={windowsSettings.hotkey.alt} /> Alt</label><label class="checkbox compact"><input type="checkbox" bind:checked={windowsSettings.hotkey.shift} /> Shift</label><label><span>Taste</span><select bind:value={windowsSettings.hotkey.key}><option value="space">Leertaste</option><option value="f8">F8</option><option value="f9">F9</option><option value="f10">F10</option><option value="f11">F11</option><option value="f12">F12</option></select></label></div><div class="button-row"><button class="button button-secondary" disabled={busyAction === 'hotkey-reregister'} on:click={reregisterHotkey}>{busyAction === 'hotkey-reregister' ? 'Prüft …' : 'Neu registrieren'}</button><span class:ready={snapshot.hotkeyStatus.phase === 'registered'} class="hotkey-status">{snapshot.hotkeyStatus.phase === 'registered' ? `Aktiv${snapshot.hotkeyStatus.lastTriggeredAt ? ' · zuletzt ausgelöst' : ''}` : snapshot.hotkeyStatus.detail ?? 'Nicht verfügbar'}</span></div>{#if snapshot.hotkeyStatus.phase === 'unavailable' && snapshot.hotkeyStatus.detail}<p class="field-error">{snapshot.hotkeyStatus.detail}</p>{/if}</article>
         <article class="settings-card"><div class="setting-title"><div><h2>Auto-Paste</h2><p>Nur in das beim Start gespeicherte, unveränderte und nicht erhöhte Fenster.</p></div><label class="toggle"><input type="checkbox" bind:checked={windowsSettings.autoPaste} /><span></span></label></div>{#if windowsSettings.autoPaste}<div class="safety-note"><b>Zusätzliche Prüfung aktiv.</b> Bei Fensterwechsel, UAC-Grenze oder Fokusfehler wird nie eingefügt; der Text bleibt nur in der Zwischenablage.</div>{/if}</article>
         <article class="settings-card"><div class="setting-title"><div><h2>Zwischenablage nach Einfügen</h2><p>Nur ursprünglichen Klartext wiederherstellen – und nur, wenn Windows keinen Zwischenzeitwechsel meldet.</p></div><label class="toggle"><input type="checkbox" bind:checked={windowsSettings.restoreClipboardAfterPaste} disabled={!windowsSettings.autoPaste} /><span></span></label></div><p class="muted">Nach 400 ms prüft die Anwendung den Windows-Sequence-Counter. Dateien, Bilder und unbekannte Formate werden nicht geraten oder überschrieben.</p></article>
         <button class="button button-primary" disabled={busyAction === 'windows-settings'} on:click={saveWindowsSettings}>{busyAction === 'windows-settings' ? 'Wird gespeichert …' : 'Windows-Einstellungen speichern'}</button>
@@ -729,9 +777,9 @@
         <div class="page-heading home-heading"><div><span class="workspace-kicker">AUFNAHME</span><h1 id="home-title">Dein Gespräch.<br />Dein Text.</h1><p>{snapshot.activeProvider?.kind === 'remote' ? 'Du verwendest bewusst deinen eigenen Remote-Worker. Audio wird ausschließlich an den unter Provider geprüften Endpunkt übertragen.' : 'Aufnahme, Verarbeitung und Verlauf bleiben auf diesem Rechner. Das Modell läuft über einen isolierten lokalen Worker.'}</p></div><div class="model-summary"><span>AKTIVER PROVIDER</span><b>{snapshot.activeProvider?.displayName}</b><small>{snapshot.activeProvider?.backend.toUpperCase()} · {snapshot.activeProvider?.modelId}</small></div></div>
         <div class="recording-layout">
           <section class="record-panel" aria-label="Aufnahme"><div class="record-panel-head"><span class="presence"><span class:recording={currentRecording !== null}></span>{currentRecording ? 'Aufnahme läuft' : snapshot.processing ? 'Transkription läuft' : snapshot.capturePhase === 'preparing' ? 'Aufnahme wird vorbereitet' : snapshot.capturePhase === 'finalizing' ? 'Aufnahme wird beendet' : 'Bereit'}</span><span>{currentRecording ? formatDuration(currentRecording.durationMs) : '0:00'}</span></div><div class="wave" class:wave-live={currentRecording !== null} style={`--level: ${(currentRecording?.peakMilli ?? 0) / 1000}`} aria-label={`Mikrofonpegel ${currentRecording?.peakMilli ?? 0} von 1000`}>{#each Array(22) as _, index}<i style={`--i: ${index}`}></i>{/each}</div><p>{currentRecording ? 'Audio bleibt im begrenzten Arbeitsspeicher.' : snapshot.capturePhase === 'preparing' ? 'Die lokale Engine und das Mikrofon werden vorbereitet.' : 'Starte eine lokale Aufnahme, wenn du bereit bist.'}</p>{#if currentRecording}<button class="record-action stop" disabled={busyAction !== null} on:click={() => void finishRecording()}>■ &nbsp; Stop & transkribieren</button><button class="button-link center" on:click={() => void cancelCurrent()}>Aufnahme verwerfen</button>{:else}<button class="record-action" disabled={isWorking} on:click={() => settings.mode === 'toggle' && void beginRecording()} on:pointerdown={(event) => settings.mode === 'push_to_talk' && startPushToTalk(event)} on:pointerup={() => settings.mode === 'push_to_talk' && stopPushToTalk()} on:pointercancel={() => settings.mode === 'push_to_talk' && cancelPushToTalk()}>● &nbsp; {settings.mode === 'push_to_talk' ? 'Gedrückt halten' : 'Aufnahme starten'}</button>{/if}</section>
-          <section class="capture-settings" aria-labelledby="capture-settings-title"><h2 id="capture-settings-title">Aufnahmeprofil</h2><label><span>Mikrofon</span><select bind:value={settings.deviceId} disabled={currentRecording !== null}><option value={null}>Systemstandard</option>{#each snapshot.inputDevices as device}<option value={device.id}>{device.name} · {device.sampleRateHz / 1000} kHz</option>{/each}</select></label>{#if snapshot.microphoneError}<p class="field-error">{snapshot.microphoneError}</p>{/if}<fieldset disabled={currentRecording !== null}><legend>Modus</legend><label><input type="radio" bind:group={settings.mode} value="toggle" /> Umschalten</label><label><input type="radio" bind:group={settings.mode} value="push_to_talk" /> Push-to-talk</label></fieldset><label><span>Maximale Aufnahmezeit</span><input type="number" min="15" max="600" step="1" bind:value={settings.maxDurationSeconds} disabled={currentRecording !== null} /><small>15–600 Sekunden, Standard 180 Sekunden.</small></label><label class="checkbox"><input type="checkbox" bind:checked={settings.vad.enabled} /> Stille per VAD erkennen</label><p class="muted">30 ms Frames · Aggressivität {settings.vad.aggressiveness} · mindestens {settings.vad.minimumSpeechMs} ms Sprache.</p></section>
+          <section class="capture-settings" aria-labelledby="capture-settings-title"><h2 id="capture-settings-title">Aufnahmeprofil</h2><label><span>Mikrofon</span><select bind:value={settings.deviceId} disabled={currentRecording !== null}><option value={null}>Systemstandard</option>{#each snapshot.inputDevices as device}<option value={device.id}>{device.name} · {device.sampleRateHz / 1000} kHz</option>{/each}</select></label>{#if snapshot.microphoneError}<p class="field-error">{snapshot.microphoneError}</p>{/if}<label><span>Sprache</span><select bind:value={transcriptionPreferences.language} disabled={currentRecording !== null || busyAction === 'transcription-settings'}><option value="auto">Automatisch erkennen (empfohlen)</option>{#each snapshot.supportedLanguages as language}<option value={language.code}>{language.displayName}</option>{/each}</select><small>Automatisch erkennt Deutsch, Englisch und Sprachwechsel. Eine manuelle Auswahl gilt jeweils für genau eine Sprache; Übersetzen bleibt deaktiviert.</small></label><button class="button button-secondary" disabled={currentRecording !== null || busyAction === 'transcription-settings'} on:click={saveTranscriptionSettings}>{busyAction === 'transcription-settings' ? 'Wird gespeichert …' : 'Sprache speichern'}</button><fieldset disabled={currentRecording !== null}><legend>Modus</legend><label><input type="radio" bind:group={settings.mode} value="toggle" /> Umschalten</label><label><input type="radio" bind:group={settings.mode} value="push_to_talk" /> Push-to-talk</label></fieldset><label><span>Maximale Aufnahmezeit</span><input type="number" min="15" max="600" step="1" bind:value={settings.maxDurationSeconds} disabled={currentRecording !== null} /><small>15–600 Sekunden, Standard 180 Sekunden.</small></label><label class="checkbox"><input type="checkbox" bind:checked={settings.vad.enabled} /> Stille per VAD erkennen</label><p class="muted">30 ms Frames · Aggressivität {settings.vad.aggressiveness} · mindestens {settings.vad.minimumSpeechMs} ms Sprache.</p></section>
         </div>
-        {#if result}<section class="result-panel" aria-labelledby="result-title"><div class="result-heading"><div><span class="workspace-kicker">LETZTES ERGEBNIS</span><h2 id="result-title">Bereit zur Übergabe</h2></div><span class="pill">{outcomeLabel()}</span></div><p class="result-text">{result.finalText}</p><div class="button-row"><button class="button button-primary" disabled={busyAction === 'copy'} on:click={copyResult}>{busyAction === 'copy' ? 'Kopiert …' : 'Text kopieren'}</button>{#if result.canPasteToOriginal && result.injectionOutcome !== 'inserted'}<button class="button button-secondary" disabled={busyAction === 'paste'} on:click={pasteOriginal}>{busyAction === 'paste' ? 'Prüft Ziel …' : 'Im Originalfenster einfügen'}</button>{/if}<button class="button-link" on:click={() => (result = null)}>Schließen</button></div>{#if result.corrections.length > 0}<div class="corrections"><b>Nachkorrekturen</b>{#each result.corrections as correction}<span class:reverted={correction.reverted}><s>{correction.original}</s> → {correction.replacement}{#if correction.reverted}<small>zurückgenommen</small>{:else}<button class="button-link" disabled={busyAction === 'correction-' + correction.id} on:click={() => void revertCorrection(result?.id ?? '', correction.id)}>Rückgängig</button>{/if}</span>{/each}</div>{/if}<details><summary>Rohtext, Laufzeiten und Warnungen</summary><p class="raw-text">{result.rawText}</p><div class="timings"><span>Audio {formatDuration(result.audioDurationMs)}</span><span>Laden {formatDuration(result.modelLoadMs)}</span><span>Inferenz {formatDuration(result.inferenceMs)}</span><span>Korrektur {formatDuration(result.correctionMs)}</span></div>{#if result.warnings.length > 0}<ul>{#each result.warnings as warning}<li>{warning}</li>{/each}</ul>{/if}</details></section>{/if}
+        {#if result}<section class="result-panel" aria-labelledby="result-title"><div class="result-heading"><div><span class="workspace-kicker">LETZTES ERGEBNIS</span><h2 id="result-title">Bereit zur Übergabe</h2></div><span class="pill">{outcomeLabel()}</span></div><p class="result-text">{result.finalText}</p><div class="timings"><span>Angefordert {result.languageRequestedLabel ?? 'Automatisch'}</span><span>Erkannt {result.languageDetectedLabel ?? 'nicht verfügbar'}</span>{#if result.languageConfidenceMilli !== null}<span>Sicherheit {Math.round(result.languageConfidenceMilli / 10)} %</span>{/if}</div><div class="button-row"><button class="button button-primary" disabled={busyAction === 'copy'} on:click={copyResult}>{busyAction === 'copy' ? 'Kopiert …' : 'Text kopieren'}</button>{#if result.canPasteToOriginal && result.injectionOutcome !== 'inserted'}<button class="button button-secondary" disabled={busyAction === 'paste'} on:click={pasteOriginal}>{busyAction === 'paste' ? 'Prüft Ziel …' : 'Im Originalfenster einfügen'}</button>{/if}<button class="button-link" on:click={() => (result = null)}>Schließen</button></div>{#if result.corrections.length > 0}<div class="corrections"><b>Nachkorrekturen</b>{#each result.corrections as correction}<span class:reverted={correction.reverted}><s>{correction.original}</s> → {correction.replacement}{#if correction.reverted}<small>zurückgenommen</small>{:else}<button class="button-link" disabled={busyAction === 'correction-' + correction.id} on:click={() => void revertCorrection(result?.id ?? '', correction.id)}>Rückgängig</button>{/if}</span>{/each}</div>{/if}<details><summary>Rohtext, Laufzeiten und Warnungen</summary><p class="raw-text">{result.rawText}</p><div class="timings"><span>Audio {formatDuration(result.audioDurationMs)}</span><span>Laden {formatDuration(result.modelLoadMs)}</span><span>Inferenz {formatDuration(result.inferenceMs)}</span><span>Korrektur {formatDuration(result.correctionMs)}</span></div>{#if result.warnings.length > 0}<ul>{#each result.warnings as warning}<li>{warning}</li>{/each}</ul>{/if}</details></section>{/if}
       </section>
     {/if}
   </section>

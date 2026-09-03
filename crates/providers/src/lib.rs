@@ -996,7 +996,7 @@ mod tests {
 
     #[test]
     fn local_sidecar_build_info_requires_matching_version_api_and_adapter() {
-        let expected = "2.0.0-alpha.2";
+        let expected = "2.0.0-alpha.3";
         let valid = format!(
             "{LOCAL_WORKER_BUILD_INFO_PREFIX}|{expected}|{API_VERSION}|{LOCAL_WORKER_ADAPTER_ID}\n"
         );
@@ -1010,7 +1010,7 @@ mod tests {
         ));
         assert!(matches!(
             parse_worker_build_info(
-                "free-whisper-worker|2.0.0-alpha.2|1|whispercpp-v1.8.6-verbose-json-t0-t1",
+                "free-whisper-worker|2.0.0-alpha.3|1|whispercpp-v1.8.6-verbose-json-t0-t1",
                 expected,
             ),
             Err(ProviderError::SidecarOutdated)

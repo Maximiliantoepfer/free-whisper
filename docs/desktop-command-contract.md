@@ -13,10 +13,11 @@ tokens or model-download URLs beyond the user-selected catalogue entry.
 | `runtime_snapshot` | Read manifest, active provider/model, microphone, persisted recording and Windows-safety preferences, runtime and latest transcript state. |
 | `model_catalog` | Read only the verified signed CPU catalogue and merge local installation state. |
 | `install_model`, `cancel_model_install`, `activate_model`, `delete_model` | Explicit model lifecycle. Activation rehashes an installed file without network access. |
-| `start_recording`, `recording_status`, `stop_recording`, `cancel_current_job` | Capture and one job through the explicitly active local or personal remote provider. |
+| `start_recording`, `recording_status`, `stop_recording`, `cancel_current_job` | Capture and one job through the explicitly active local or personal remote provider. `stop_recording` returns a transcript or the successful `no_speech` no-op outcome. |
 | `copy_transcript` | Explicitly copy immutable `final_text`; no auto-paste or clipboard restore occurs. |
 | `paste_transcript_to_original` | Re-check an opt-in target snapshot, focus it only after a user confirmation, then paste or return a visible copy-only fallback. |
-| `save_windows_integration_settings` | Persist non-secret Auto-Paste and clipboard-restore preferences plus the next-start hotkey binding. |
+| `save_transcription_preferences` | Persist the validated `auto` or one pinned multilingual Whisper language code. It is the only source for window, tray and hotkey recording requests. |
+| `save_windows_integration_settings`, `reregister_global_hotkey` | Persist and immediately verify a non-secret hotkey binding, or retry its current registration while reporting typed hotkey status. |
 | `recent_transcripts` | Read the last 25 locally stored transcript records. |
 | `search_transcripts`, `revert_transcript_correction` | Literal, parameterized history search and individual correction reverts derived from immutable raw text. |
 | `lexicon_workspace`, `save_lexicon_profile`, `delete_lexicon_profile`, `set_active_lexicon_profile` | Read and maintain local profiles; only enabled profiles can become active. |
@@ -28,13 +29,20 @@ tokens or model-download URLs beyond the user-selected catalogue entry.
 
 `start_recording` refuses a missing selected model, unavailable microphone,
 remote credential/profile fault or a busy processor. A remote profile must have
-been explicitly tested and activated. `stop_recording` refuses
-empty/VAD-insufficient audio before it invokes the selected provider.
+been explicitly tested and activated. `stop_recording` does not invoke a
+provider for empty/VAD-insufficient audio and returns the non-error
+`no_speech` outcome instead.
 
 Recording preferences contain only microphone selection, mode, duration and
 VAD parameters. They are saved as non-sensitive JSON in SQLite when recording
 starts; malformed saved preferences are reported and replaced in memory with
 safe defaults, never silently accepted.
+
+Transcription preferences are separately stored non-sensitive SQLite data:
+`auto` is the default and the worker always forwards it as `language=auto`
+alongside `translate=false`. An explicit selection must be an entry from the
+pinned multilingual Whisper catalogue; browser-supplied job language values
+are not accepted.
 
 ## Events
 
@@ -48,6 +56,8 @@ future incompatible version is received.
   number and refreshes the backend snapshot after terminal states.
 - `desktop.v1.platform-error`: Windows hotkey, target-window, tray, clipboard
   restore or shutdown error that requires visible UI feedback.
+- `desktop.v1.hotkey-status`: registered/unavailable state, the validated
+  binding, optional safe detail and the last trigger timestamp.
 
 The event stream contains no PCM samples, transcript text or secrets.
 
