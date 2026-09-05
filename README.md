@@ -4,7 +4,7 @@ Free, open-source, offline-first transcription for Windows. V2 is a Rust/Tauri
 desktop application that records audio locally, transcribes through a managed
 local worker, applies conservative lexicon corrections and copies the result
 only after an explicit user action.
-test2
+test 4
 
 ## Status
 
